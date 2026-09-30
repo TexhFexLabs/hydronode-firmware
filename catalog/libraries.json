@@ -152,6 +152,14 @@
       "source": "https://github.com/espressif/arduino-esp32/archive/refs/tags/3.3.12.tar.gz"
     },
     {
+      "name": "ESP8266 core for Arduino",
+      "version": "3.1.2",
+      "license": "LGPL-2.1-or-later",
+      "url": "https://github.com/esp8266/Arduino",
+      "source": "https://github.com/esp8266/Arduino/archive/refs/tags/3.1.2.tar.gz",
+      "note": "Contains the Espressif NONOS SDK (binary, Espressif license permitting redistribution), BearSSL (MIT) and lwIP (BSD)."
+    },
+    {
       "name": "ESP-IDF (vorkompiliert im Arduino-Core)",
       "version": "5.5.5",
       "license": "Apache-2.0",
@@ -162,6 +170,13 @@
       "version": "55.03.312-1",
       "license": "Apache-2.0",
       "url": "https://github.com/pioarduino/platform-espressif32",
+      "buildOnly": true
+    },
+    {
+      "name": "PlatformIO espressif8266",
+      "version": "4.2.1",
+      "license": "Apache-2.0",
+      "url": "https://github.com/platformio/platform-espressif8266",
       "buildOnly": true
     }
   ]

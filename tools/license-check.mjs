@@ -21,7 +21,9 @@ const arg = (name) => {
   const i = process.argv.indexOf(name);
   return i > 0 ? process.argv[i + 1] : undefined;
 };
-const envs = (arg('--env') ?? 'esp32,esp32s2,esp32s3,esp32c3,esp32c6').split(',');
+const envs = (arg('--env') ?? 'esp32,esp32s2,esp32s3,esp32c3,esp32c6,esp8266').split(',');
+// Our own MIT library may come from the sibling checkout in a newer, unreleased version.
+const OWN = new Set(['HydroNode-Library']);
 const out = arg('--out');
 
 const catalog = JSON.parse(readFileSync(join(root, 'catalog/libraries.json'), 'utf8'));
@@ -97,7 +99,7 @@ for (const env of envs) {
     if (!meta) { errors.push(`${env}/${entry}: no library.json/library.properties`); continue; }
     const listed = byName.get(meta.name);
     if (!listed) { errors.push(`${env}: "${meta.name}" is not in catalog/libraries.json`); continue; }
-    if (listed.version !== meta.version) errors.push(`${env}: ${meta.name} is ${meta.version}, catalog pins ${listed.version}`);
+    if (listed.version !== meta.version && !OWN.has(meta.name)) errors.push(`${env}: ${meta.name} is ${meta.version}, catalog pins ${listed.version}`);
     const text = licenseText(dir);
     if (!text) { errors.push(`${env}: ${meta.name} has no license text`); continue; }
     const hit = FORBIDDEN.find(([re]) => re.test(text));
@@ -117,18 +119,18 @@ if (out) {
     '',
     'This firmware contains the open source components listed below.',
     '',
-    '## LGPL-2.1 notice (Arduino core for ESP32)',
+    '## LGPL-2.1 notice (Arduino cores)',
     '',
   ];
   for (const core of catalog.cores.filter((c) => !c.buildOnly)) {
-    lines.push(`- **${core.name} ${core.version}** — ${core.license} — ${core.url}` + (core.source ? `, source: ${core.source}` : ''));
+    lines.push(`- **${core.name} ${core.version}** — ${core.license} — ${core.url}` + (core.source ? `, source: ${core.source}` : '') + (core.note ? `. ${core.note}` : ''));
   }
   lines.push(
     '',
-    'The Arduino core for ESP32 is licensed under the GNU Lesser General Public License 2.1.',
+    'The Arduino cores for ESP32 and ESP8266 are licensed under the GNU Lesser General Public License 2.1.',
     'You may modify it and relink the firmware: the complete firmware source, with every',
     'dependency pinned, is published at https://github.com/TexhFexLabs/hydronode-firmware.',
-    'The exact core source is attached to every firmware release.',
+    'The exact core sources are attached to every firmware release.',
     '',
     '## Libraries',
     '',

@@ -34,7 +34,7 @@ ESPTOOL_DIR = PIO_HOME / "packages" / "tool-esptoolpy"
 BOOT_APP0 = PIO_HOME / "packages" / "framework-arduinoespressif32" / "tools" / "partitions" / "boot_app0.bin"
 
 PARTITION_TABLE_OFFSET = 0x8000
-CHIP_ARG = {"esp32": "esp32", "esp32s2": "esp32s2", "esp32s3": "esp32s3", "esp32c3": "esp32c3", "esp32c6": "esp32c6"}
+CHIP_ARG = {"esp32": "esp32", "esp32s2": "esp32s2", "esp32s3": "esp32s3", "esp32c3": "esp32c3", "esp32c6": "esp32c6", "esp8266": "esp8266"}
 
 
 def sha256(path: Path) -> str:
@@ -68,11 +68,28 @@ def main() -> int:
     images = {}
     for family, spec in catalog["families"].items():
         build = ROOT / ".pio" / "build" / spec["env"]
+        target = out / f"{family}.bin"
+        if family == "esp8266":
+            # No partition table: firmware.bin already starts with the eboot loader, flashed at 0.
+            app = build / "firmware.bin"
+            if not app.exists():
+                sys.exit(f"{family}: missing {app}, run pio run -e {spec['env']}")
+            shutil.copy(app, target)
+            if target.stat().st_size > spec["configOffset"]:
+                sys.exit(f"{family}: image overlaps the config area")
+            images[family] = {
+                "file": target.name,
+                "chip": spec["chip"],
+                "offset": 0,
+                "size": target.stat().st_size,
+                "sha256": sha256(target),
+                "configOffset": spec["configOffset"],
+            }
+            continue
         needed = [build / "bootloader.bin", build / "partitions.bin", build / "firmware.bin"]
         missing = [str(p) for p in needed if not p.exists()]
         if missing:
             sys.exit(f"{family}: missing {missing}, run pio run -e {spec['env']}")
-        target = out / f"{family}.bin"
         subprocess.run(
             [
                 sys.executable, "-m", "esptool", "--chip", CHIP_ARG[family], "merge-bin",

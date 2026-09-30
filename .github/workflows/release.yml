@@ -26,6 +26,10 @@ jobs:
         run: |
           version=$(sed -n 's/^version = //p' platformio.ini)
           test "v$version" = "$GITHUB_REF_NAME"
+      # HydroNode-Library 1.4.0 (ESP8266 support) is not in the registry yet; the esp8266 env
+      # links the sibling checkout. Remove once platformio.ini pins 1.4.0 from the registry.
+      - name: HydroNode-Library checkout
+        run: git clone --depth 1 https://github.com/TexhFexLabs/HydroNode-Library.git ../hydronode-library
       - name: Catalog
         run: node tools/validate-catalog.mjs --out dist
       - name: Host tests
@@ -39,8 +43,8 @@ jobs:
       # LGPL-2.1: ship the exact source of the Arduino core with every binary release.
       - name: Attach core source
         run: |
-          core=$(node -e "console.log(require('./catalog/libraries.json').cores[0].source)")
-          curl -fsSL "$core" -o dist/arduino-esp32-core-source.tar.gz
+          node -e "require('./catalog/libraries.json').cores.filter(c => c.source).forEach(c => console.log(c.source.split('/').slice(3, 5).join('-') + '-' + c.version, c.source))" |
+            while read name url; do curl -fsSL "$url" -o "dist/core-source-$name.tar.gz"; done
       - uses: actions/attest-build-provenance@v2
         with:
           subject-path: dist/hydronode-firmware-*.zip
@@ -50,5 +54,5 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" \
             dist/hydronode-firmware-*.zip \
-            dist/arduino-esp32-core-source.tar.gz \
+            dist/core-source-*.tar.gz \
             --title "$GITHUB_REF_NAME" --generate-notes

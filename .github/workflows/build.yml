@@ -41,7 +41,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        env: [esp32, esp32s2, esp32s3, esp32c3, esp32c6]
+        env: [esp32, esp32s2, esp32s3, esp32c3, esp32c6, esp8266]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -57,6 +57,10 @@ jobs:
           key: pio-${{ matrix.env }}-${{ hashFiles('platformio.ini') }}
       - name: Install PlatformIO
         run: pip install platformio==6.2.0
+      # HydroNode-Library 1.4.0 (ESP8266 support) is not in the registry yet; the esp8266 env
+      # links the sibling checkout. Remove once platformio.ini pins 1.4.0 from the registry.
+      - name: HydroNode-Library checkout
+        run: git clone --depth 1 https://github.com/TexhFexLabs/HydroNode-Library.git ../hydronode-library
       - name: Build
         run: pio run -e ${{ matrix.env }}
       - name: License gate

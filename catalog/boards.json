@@ -426,6 +426,55 @@
       "notes": [
         "2.4 GHz only. WiFi 6 works, 5 GHz does not."
       ]
+    },
+    "esp8266": {
+      "name": "ESP8266",
+      "chip": "ESP8266",
+      "env": "esp8266",
+      "bootloaderOffset": 0,
+      "gpios": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        12,
+        13,
+        14,
+        15,
+        17
+      ],
+      "inputOnly": [
+        17
+      ],
+      "adc": [
+        17
+      ],
+      "strapping": [
+        0,
+        2,
+        15
+      ],
+      "serial": [
+        1,
+        3
+      ],
+      "usb": [],
+      "wakePins": [],
+      "i2cBuses": 1,
+      "sleepModes": [
+        "ALWAYS_ON",
+        "MODEM_SLEEP",
+        "LIGHT_SLEEP",
+        "DEEP_SLEEP"
+      ],
+      "configOffset": 3244032,
+      "maxDevices": 8,
+      "notes": [
+        "Deep sleep needs a wire from GPIO16 (D0) to RST, otherwise the board never wakes up. GPIO16 is kept free for it.",
+        "One analog input only: A0, 0 to 3.2 V on NodeMCU and D1 mini. The ESP8266 has less memory, so at most 8 sensors."
+      ]
     }
   },
   "boards": [
@@ -726,6 +775,90 @@
       },
       "led": 15,
       "batteryFriendly": true
+    },
+    {
+      "id": "esp8266-nodemcu",
+      "family": "esp8266",
+      "name": "NodeMCU v2/v3 (ESP-12E)",
+      "pioBoard": "nodemcuv2",
+      "fqbn": "esp8266:esp8266:nodemcuv2",
+      "usb": "uart",
+      "exclude": [],
+      "exposed": [
+        5,
+        4,
+        0,
+        2,
+        14,
+        12,
+        13,
+        15,
+        3,
+        1,
+        17
+      ],
+      "labels": {
+        "5": "D1",
+        "4": "D2",
+        "0": "D3",
+        "2": "D4",
+        "14": "D5",
+        "12": "D6",
+        "13": "D7",
+        "15": "D8",
+        "3": "RX",
+        "1": "TX",
+        "17": "A0"
+      },
+      "i2c": {
+        "sda": 4,
+        "scl": 5
+      },
+      "led": 2,
+      "adcRangeMv": 3200,
+      "batteryFriendly": false
+    },
+    {
+      "id": "esp8266-d1-mini",
+      "family": "esp8266",
+      "name": "Wemos D1 mini",
+      "pioBoard": "d1_mini",
+      "fqbn": "esp8266:esp8266:d1_mini",
+      "usb": "uart",
+      "exclude": [],
+      "exposed": [
+        5,
+        4,
+        0,
+        2,
+        14,
+        12,
+        13,
+        15,
+        3,
+        1,
+        17
+      ],
+      "labels": {
+        "5": "D1",
+        "4": "D2",
+        "0": "D3",
+        "2": "D4",
+        "14": "D5",
+        "12": "D6",
+        "13": "D7",
+        "15": "D8",
+        "3": "RX",
+        "1": "TX",
+        "17": "A0"
+      },
+      "i2c": {
+        "sda": 4,
+        "scl": 5
+      },
+      "led": 2,
+      "adcRangeMv": 3200,
+      "batteryFriendly": false
     }
   ]
 }

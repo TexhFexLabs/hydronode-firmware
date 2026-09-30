@@ -38,6 +38,6 @@ protected:
 };
 
 // Creates the driver for `cfg`, or nullptr for an unknown driver id.
-Driver* createDriver(const DeviceConfig& cfg, TwoWire* buses[kMaxI2cBuses]);
+Driver* createDriver(const DeviceConfig& cfg, TwoWire* buses[kMaxI2cBuses], uint16_t adcRangeMv);
 
 }  // namespace hn

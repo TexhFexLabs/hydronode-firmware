@@ -1,5 +1,7 @@
 #include "Power.h"
 
+#if !defined(ESP8266)
+
 #include <Arduino.h>
 #include <driver/gpio.h>
 #include <esp_sleep.h>
@@ -122,4 +124,8 @@ void deepSleep(const Config& cfg, uint32_t seconds) {
     esp_deep_sleep_start();
 }
 
+void resumeLongSleep(const Config&) {}
+
 }  // namespace hn::power
+
+#endif  // !ESP8266

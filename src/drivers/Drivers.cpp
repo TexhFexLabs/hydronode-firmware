@@ -256,23 +256,32 @@ private:
 
 // --- Analog ------------------------------------------------------------------------
 
-float readMillivolts(int8_t pin) {
+float readMillivolts(int8_t pin, uint16_t rangeMv) {
     uint32_t sum = 0;
+#if defined(ESP8266)
+    // A0 reads 0..1023 over the board's divider (NodeMCU and D1 mini: 0..3.2 V).
+    for (int i = 0; i < 8; i++) sum += analogRead(A0);
+    return sum / 8.0f * rangeMv / 1023.0f;
+#else
+    (void)rangeMv;
     for (int i = 0; i < 8; i++) sum += analogReadMilliVolts(pin);
     return sum / 8.0f;
+#endif
 }
 
 class Analog : public Driver {
 public:
-    explicit Analog(const DeviceConfig& cfg) : Driver(cfg) {}
+    Analog(const DeviceConfig& cfg, uint16_t rangeMv) : Driver(cfg), rangeMv_(rangeMv) {}
 
     bool begin() override {
+#if !defined(ESP8266)
         analogSetPinAttenuation(cfg_.pin, ADC_11db);
+#endif
         return true;
     }
 
     void read(Reading* out) override {
-        float mv = readMillivolts(cfg_.pin);
+        float mv = readMillivolts(cfg_.pin, rangeMv_);
         if (strcmp(cfg_.driver, "soil") == 0) {
             float dry = cfg_.number("dry", 2600), wet = cfg_.number("wet", 1100);
             float pct = dry == wet ? NAN : (dry - mv) / (dry - wet) * 100.0f;
@@ -285,15 +294,18 @@ public:
     }
 
     uint32_t warmupMs() const override { return 100; }
+
+private:
+    uint16_t rangeMv_;
 };
 
 }  // namespace
 
-Driver* createDriver(const DeviceConfig& cfg, TwoWire* buses[kMaxI2cBuses]) {
+Driver* createDriver(const DeviceConfig& cfg, TwoWire* buses[kMaxI2cBuses], uint16_t adcRangeMv) {
     const char* id = cfg.driver;
     if (strcmp(id, "ds18b20") == 0) return new Ds18b20(cfg);
     if (strcmp(id, "dht") == 0) return new Dht(cfg);
-    if (strcmp(id, "soil") == 0 || strcmp(id, "analog") == 0 || strcmp(id, "battery") == 0) return new Analog(cfg);
+    if (strcmp(id, "soil") == 0 || strcmp(id, "analog") == 0 || strcmp(id, "battery") == 0) return new Analog(cfg, adcRangeMv);
 
     if (cfg.bus < 0 || !buses[cfg.bus]) return nullptr;
     TwoWire* bus = buses[cfg.bus];

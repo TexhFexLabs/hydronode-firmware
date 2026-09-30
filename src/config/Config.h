@@ -23,7 +23,11 @@ namespace hn {
 constexpr uint16_t kConfigSchema = 1;
 constexpr size_t kHeaderSize = 16;
 constexpr size_t kMaxPayload = 8192 - kHeaderSize;
+#if defined(ESP8266)
+constexpr uint8_t kMaxDevices = 8;  // ~80 KB RAM, TLS needs the heap
+#else
 constexpr uint8_t kMaxDevices = 16;
+#endif
 constexpr uint8_t kMaxChannels = 8;
 constexpr uint8_t kMaxOptions = 4;
 constexpr uint8_t kMaxI2cBuses = 2;
@@ -95,6 +99,7 @@ struct Config {
     uint8_t wakeLevel;       // 0 = wake on LOW, 1 = wake on HIGH
     int8_t sensorPowerPin;   // -1 = sensors always powered
     bool fastReconnect;
+    uint16_t adcRangeMv;     // ESP8266 A0: millivolts at full scale (board divider), else unused
     I2cBusConfig i2c[kMaxI2cBuses];
     uint8_t i2cCount;
     DeviceConfig devices[kMaxDevices];
@@ -105,6 +110,9 @@ struct ParseResult {
     ConfigError error;
     char detail[48];  // field name or reason, never a secret value
 };
+
+// A result with a short detail text (copied, truncated to fit).
+ParseResult makeResult(ConfigError error, const char* detail);
 
 uint32_t crc32(const uint8_t* data, size_t len);
 

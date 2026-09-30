@@ -1,9 +1,14 @@
 #include "Net.h"
 
 #include <Arduino.h>
+#include <string.h>
+
+#if defined(ESP8266)
+#include <ESP8266WiFi.h>
+#else
 #include <WiFi.h>
 #include <esp_attr.h>
-#include <string.h>
+#endif
 
 #include "status/Status.h"
 
@@ -19,8 +24,18 @@ struct FastState {
     int32_t channel;
 };
 
+#if defined(ESP8266)
+// ESP8266: RTC user memory, word aligned. Slot 0..3 is used by the power module.
+constexpr uint32_t kRtcSlot = 8;
+FastState fast;
+void loadFast() { ESP.rtcUserMemoryRead(kRtcSlot, reinterpret_cast<uint32_t*>(&fast), sizeof(fast)); }
+void saveFast() { ESP.rtcUserMemoryWrite(kRtcSlot, reinterpret_cast<uint32_t*>(&fast), sizeof(fast)); }
+#else
 // Survives deep sleep (not hibernate, which powers RTC memory down).
 RTC_DATA_ATTR FastState fast;
+void loadFast() {}
+void saveFast() {}
+#endif
 
 const char* reason(wl_status_t s) {
     switch (s) {
@@ -47,6 +62,10 @@ bool waitConnected(uint32_t timeoutMs) {
 bool connect(const Config& cfg, uint32_t timeoutMs) {
     uint32_t start = millis();
     WiFi.persistent(false);
+#if defined(ESP8266)
+    WiFi.forceSleepWake();
+    delay(1);
+#endif
     WiFi.mode(WIFI_STA);
     if (cfg.staticIp) {
         WiFi.config(IPAddress(cfg.ip), IPAddress(cfg.gateway), IPAddress(cfg.subnet), IPAddress(cfg.dns));
@@ -54,6 +73,7 @@ bool connect(const Config& cfg, uint32_t timeoutMs) {
 
     bool ok = false;
     bool usedFast = false;
+    loadFast();
     if (cfg.fastReconnect && fast.magic == kFastMagic) {
         usedFast = true;
         WiFi.begin(cfg.ssid, cfg.pass, fast.channel, fast.bssid, true);
@@ -61,6 +81,7 @@ bool connect(const Config& cfg, uint32_t timeoutMs) {
         if (!ok) {
             // Router moved to another channel or AP: fall back to a full scan.
             fast.magic = 0;
+            saveFast();
             WiFi.disconnect(true);
             delay(50);
         }
@@ -78,18 +99,31 @@ bool connect(const Config& cfg, uint32_t timeoutMs) {
         memcpy(fast.bssid, WiFi.BSSID(), 6);
         fast.channel = WiFi.channel();
         fast.magic = kFastMagic;
+        saveFast();
     }
     status::line("WIFI ok rssi=%d ms=%lu fast=%d", WiFi.RSSI(), (unsigned long)(millis() - start), usedFast ? 1 : 0);
     return true;
 }
 
 void off() {
+#if defined(ESP8266)
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    WiFi.forceSleepBegin();
+#else
     WiFi.disconnect(true, false);
     WiFi.mode(WIFI_OFF);
+#endif
 }
 
 bool connected() { return WiFi.status() == WL_CONNECTED; }
 
-void setPowerSave(bool on) { WiFi.setSleep(on ? WIFI_PS_MAX_MODEM : WIFI_PS_NONE); }
+void setPowerSave(bool on) {
+#if defined(ESP8266)
+    WiFi.setSleepMode(on ? WIFI_MODEM_SLEEP : WIFI_NONE_SLEEP);
+#else
+    WiFi.setSleep(on ? WIFI_PS_MAX_MODEM : WIFI_PS_NONE);
+#endif
+}
 
 }  // namespace hn::net

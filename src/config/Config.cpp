@@ -8,13 +8,9 @@ namespace hn {
 
 namespace {
 
-ParseResult ok() { return {ConfigError::Ok, ""}; }
+ParseResult ok() { return makeResult(ConfigError::Ok, ""); }
 
-ParseResult fail(ConfigError error, const char* detail) {
-    ParseResult r{error, ""};
-    strncpy(r.detail, detail, sizeof(r.detail) - 1);
-    return r;
-}
+ParseResult fail(ConfigError error, const char* detail) { return makeResult(error, detail); }
 
 uint16_t readU16(const uint8_t* p) { return uint16_t(p[0] | (p[1] << 8)); }
 uint32_t readU32(const uint8_t* p) {
@@ -71,6 +67,14 @@ bool validPin(JsonVariantConst v, int8_t& out) {
 }
 
 }  // namespace
+
+ParseResult makeResult(ConfigError error, const char* detail) {
+    ParseResult r;
+    r.error = error;
+    memset(r.detail, 0, sizeof(r.detail));
+    strncpy(r.detail, detail, sizeof(r.detail) - 1);
+    return r;
+}
 
 const OptionValue* DeviceConfig::option(const char* key) const {
     for (uint8_t i = 0; i < optionCount; i++) {
@@ -167,6 +171,9 @@ ParseResult parsePayload(const char* json, size_t len, Config& out) {
         out.fastReconnect = false;  // RTC memory is powered down
         if (out.wakePin >= 0) return fail(ConfigError::BadValue, "power.wakePin");
     }
+
+    out.adcRangeMv = doc["adcMv"] | 3200;
+    if (out.adcRangeMv < 1000 || out.adcRangeMv > 12000) return fail(ConfigError::BadValue, "adcMv");
 
     JsonArrayConst buses = doc["i2c"];
     if (buses.size() > kMaxI2cBuses) return fail(ConfigError::BadValue, "i2c");
