@@ -3,8 +3,8 @@
   "modes": [
     {
       "id": "ALWAYS_ON",
-      "name": "Dauerbetrieb",
-      "summary": "WLAN bleibt verbunden, zwischen den Messungen wird nur gewartet.",
+      "name": "Always on",
+      "summary": "WiFi stays connected, the board just waits between readings.",
       "typicalCurrent": "80–120 mA",
       "minIntervalSeconds": 10,
       "keepsConnection": true,
@@ -12,8 +12,8 @@
     },
     {
       "id": "MODEM_SLEEP",
-      "name": "Modem-Sleep",
-      "summary": "WLAN bleibt verbunden, das Funkmodul schläft zwischen den Beacons.",
+      "name": "Modem sleep",
+      "summary": "WiFi stays connected, the radio naps between beacons.",
       "typicalCurrent": "20–40 mA",
       "minIntervalSeconds": 10,
       "keepsConnection": true,
@@ -21,17 +21,17 @@
     },
     {
       "id": "LIGHT_SLEEP",
-      "name": "Light-Sleep",
-      "summary": "CPU pausiert, Speicher bleibt erhalten. WLAN verbindet sich pro Messung neu.",
-      "typicalCurrent": "ca. 1 mA im Schlaf",
+      "name": "Light sleep",
+      "summary": "The CPU pauses and keeps its memory. WiFi reconnects for every reading.",
+      "typicalCurrent": "about 1 mA asleep",
       "minIntervalSeconds": 20,
       "keepsConnection": false,
       "wakePin": true
     },
     {
       "id": "AUTO_LIGHT_SLEEP",
-      "name": "Auto-Light-Sleep",
-      "summary": "Power-Management schläft automatisch und hält die WLAN-Verbindung. Braucht einen Core mit CONFIG_PM_ENABLE, der vorkompilierte Arduino-Core 3.3.12 hat das nicht, deshalb bei keinem Board freigeschaltet.",
+      "name": "Auto light sleep",
+      "summary": "Power management sleeps on its own and keeps WiFi connected. Needs a core built with CONFIG_PM_ENABLE; the precompiled Arduino core 3.3.12 is not, so no board offers it.",
       "typicalCurrent": "2–5 mA",
       "minIntervalSeconds": 10,
       "keepsConnection": true,
@@ -40,9 +40,9 @@
     },
     {
       "id": "DEEP_SLEEP",
-      "name": "Deep-Sleep",
-      "summary": "Alles aus bis auf die Uhr. Das Gerät startet pro Messung neu.",
-      "typicalCurrent": "10–150 µA (Chip), Dev-Boards oft 1–10 mA",
+      "name": "Deep sleep",
+      "summary": "Everything off except the clock. The board restarts for every reading.",
+      "typicalCurrent": "10–150 µA chip, dev boards often 1–10 mA",
       "minIntervalSeconds": 30,
       "recommendedIntervalSeconds": 60,
       "keepsConnection": false,
@@ -51,8 +51,8 @@
     {
       "id": "HIBERNATE",
       "name": "Hibernate",
-      "summary": "Wie Deep-Sleep, zusätzlich RTC-Speicher aus. Nur Timer weckt, kein Schnell-Reconnect.",
-      "typicalCurrent": "ca. 5 µA (Chip)",
+      "summary": "Like deep sleep, with the RTC memory off as well. Only the timer wakes it, no fast reconnect.",
+      "typicalCurrent": "about 5 µA chip",
       "minIntervalSeconds": 30,
       "recommendedIntervalSeconds": 300,
       "keepsConnection": false,
