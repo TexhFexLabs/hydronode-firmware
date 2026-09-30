@@ -1,0 +1,169 @@
+{
+  "schema": 1,
+  "allowedLicenses": [
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Apache-2.0",
+    "ISC",
+    "Zlib"
+  ],
+  "base": [
+    "HydroNode-Library",
+    "ArduinoJson",
+    "ArduinoHttpClient",
+    "NTPClient",
+    "WiFiManager"
+  ],
+  "libraries": [
+    {
+      "name": "HydroNode-Library",
+      "pio": "texhfexlabs/HydroNode-Library",
+      "version": "1.3.0",
+      "license": "MIT",
+      "url": "https://github.com/TexhFexLabs/HydroNode-Library"
+    },
+    {
+      "name": "ArduinoJson",
+      "pio": "bblanchon/ArduinoJson",
+      "version": "7.4.3",
+      "license": "MIT",
+      "url": "https://github.com/bblanchon/ArduinoJson"
+    },
+    {
+      "name": "ArduinoHttpClient",
+      "pio": "arduino-libraries/ArduinoHttpClient",
+      "version": "0.6.2",
+      "license": "Apache-2.0",
+      "url": "https://github.com/arduino-libraries/ArduinoHttpClient"
+    },
+    {
+      "name": "NTPClient",
+      "pio": "arduino-libraries/NTPClient",
+      "version": "3.2.1",
+      "license": "MIT",
+      "url": "https://github.com/arduino-libraries/NTPClient"
+    },
+    {
+      "name": "WiFiManager",
+      "pio": "tzapu/WiFiManager",
+      "version": "2.0.17",
+      "license": "MIT",
+      "url": "https://github.com/tzapu/WiFiManager"
+    },
+    {
+      "name": "OneWire",
+      "pio": "paulstoffregen/OneWire",
+      "version": "2.3.8",
+      "license": "MIT",
+      "url": "https://github.com/PaulStoffregen/OneWire",
+      "licenseNote": "MIT-artige Lizenz im Kopf von OneWire.cpp"
+    },
+    {
+      "name": "DallasTemperature",
+      "pio": "milesburton/DallasTemperature",
+      "version": "4.0.6",
+      "license": "MIT",
+      "url": "https://github.com/milesburton/Arduino-Temperature-Control-Library"
+    },
+    {
+      "name": "DHT sensor library",
+      "pio": "adafruit/DHT sensor library",
+      "version": "1.4.7",
+      "license": "MIT",
+      "url": "https://github.com/adafruit/DHT-sensor-library"
+    },
+    {
+      "name": "Adafruit Unified Sensor",
+      "pio": "adafruit/Adafruit Unified Sensor",
+      "version": "1.1.15",
+      "license": "Apache-2.0",
+      "url": "https://github.com/adafruit/Adafruit_Sensor"
+    },
+    {
+      "name": "Adafruit BusIO",
+      "pio": "adafruit/Adafruit BusIO",
+      "version": "1.17.4",
+      "license": "MIT",
+      "url": "https://github.com/adafruit/Adafruit_BusIO"
+    },
+    {
+      "name": "Sensirion Core",
+      "pio": "sensirion/Sensirion Core",
+      "version": "0.7.3",
+      "license": "BSD-3-Clause",
+      "url": "https://github.com/Sensirion/arduino-core"
+    },
+    {
+      "name": "Sensirion I2C SHT4x",
+      "pio": "sensirion/Sensirion I2C SHT4x",
+      "version": "1.1.2",
+      "license": "BSD-3-Clause",
+      "url": "https://github.com/Sensirion/arduino-i2c-sht4x"
+    },
+    {
+      "name": "Adafruit SHT31 Library",
+      "pio": "adafruit/Adafruit SHT31 Library",
+      "version": "2.2.2",
+      "license": "BSD-3-Clause",
+      "url": "https://github.com/adafruit/Adafruit_SHT31"
+    },
+    {
+      "name": "Adafruit AHTX0",
+      "pio": "adafruit/Adafruit AHTX0",
+      "version": "2.0.6",
+      "license": "BSD-3-Clause",
+      "url": "https://github.com/adafruit/Adafruit_AHTX0"
+    },
+    {
+      "name": "Adafruit HTU21DF Library",
+      "pio": "adafruit/Adafruit HTU21DF Library",
+      "version": "1.1.2",
+      "license": "BSD-3-Clause",
+      "url": "https://github.com/adafruit/Adafruit_HTU21DF_Library"
+    },
+    {
+      "name": "Adafruit BME280 Library",
+      "pio": "adafruit/Adafruit BME280 Library",
+      "version": "2.3.0",
+      "license": "BSD-3-Clause",
+      "url": "https://github.com/adafruit/Adafruit_BME280_Library"
+    },
+    {
+      "name": "Adafruit BMP280 Library",
+      "pio": "adafruit/Adafruit BMP280 Library",
+      "version": "3.0.0",
+      "license": "MIT",
+      "url": "https://github.com/adafruit/Adafruit_BMP280_Library"
+    },
+    {
+      "name": "BH1750",
+      "pio": "claws/BH1750",
+      "version": "1.3.0",
+      "license": "MIT",
+      "url": "https://github.com/claws/BH1750"
+    }
+  ],
+  "cores": [
+    {
+      "name": "Arduino core for ESP32",
+      "version": "3.3.12",
+      "license": "LGPL-2.1-or-later",
+      "url": "https://github.com/espressif/arduino-esp32",
+      "source": "https://github.com/espressif/arduino-esp32/archive/refs/tags/3.3.12.tar.gz"
+    },
+    {
+      "name": "ESP-IDF (vorkompiliert im Arduino-Core)",
+      "version": "5.5.5",
+      "license": "Apache-2.0",
+      "url": "https://github.com/espressif/esp-idf"
+    },
+    {
+      "name": "pioarduino platform-espressif32",
+      "version": "55.03.312-1",
+      "license": "Apache-2.0",
+      "url": "https://github.com/pioarduino/platform-espressif32",
+      "buildOnly": true
+    }
+  ]
+}

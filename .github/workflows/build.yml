@@ -1,0 +1,57 @@
+name: Build
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  catalog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Validate catalog
+        run: node tools/validate-catalog.mjs --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catalog
+          path: dist/catalog.json
+
+  firmware:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [esp32, esp32s2, esp32s3, esp32c3, esp32c6]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ matrix.env }}-${{ hashFiles('platformio.ini') }}
+      - name: Install PlatformIO
+        run: pip install platformio==6.2.0
+      - name: Build
+        run: pio run -e ${{ matrix.env }}
+      - name: License gate
+        run: node tools/license-check.mjs --env ${{ matrix.env }} --out dist/THIRD_PARTY_LICENSES.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.env }}
+          path: |
+            .pio/build/${{ matrix.env }}/*.bin
+            dist/THIRD_PARTY_LICENSES.md

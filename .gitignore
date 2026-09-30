@@ -1,0 +1,6 @@
+.pio/
+.vscode/
+dist/
+.DS_Store
+*.bin
+!catalog/fixtures/*.bin

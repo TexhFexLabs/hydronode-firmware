@@ -1,0 +1,244 @@
+{
+  "schema": 1,
+  "quantities": {
+    "t": { "name": "Temperatur", "unit": "°C" },
+    "rh": { "name": "Luftfeuchte", "unit": "%" },
+    "p": { "name": "Luftdruck", "unit": "hPa" },
+    "lux": { "name": "Helligkeit", "unit": "lx" },
+    "m": { "name": "Bodenfeuchte", "unit": "%" },
+    "v": { "name": "Spannung", "unit": "V" },
+    "x": { "name": "Messwert", "unit": "" }
+  },
+  "drivers": [
+    {
+      "id": "ds18b20",
+      "name": "DS18B20",
+      "summary": "Wasserdichter Temperaturfühler, mehrere an einem Pin möglich",
+      "category": "temperature",
+      "bus": "onewire",
+      "maxPerBus": 8,
+      "pins": [{ "key": "pin", "label": "Daten (DQ)", "caps": ["digital"], "pullup": "4,7 kΩ zwischen DQ und 3,3 V" }],
+      "channels": [
+        { "q": "t", "defaultType": "TEMPERATURE", "typeOptions": ["TEMPERATURE", "WATER_TEMPERATURE", "SOIL_TEMPERATURE"] }
+      ],
+      "options": [],
+      "warmupMs": 750,
+      "sleepSafe": true,
+      "wiring": "Rot an 3,3 V, Schwarz an GND, Gelb an den Datenpin. 4,7 kΩ zwischen Gelb und 3,3 V.",
+      "libs": ["OneWire", "DallasTemperature"],
+      "esphome": "dallas_temp"
+    },
+    {
+      "id": "dht",
+      "name": "DHT11 / DHT22",
+      "summary": "Einfacher Temperatur- und Feuchtesensor",
+      "category": "climate",
+      "bus": "gpio",
+      "pins": [{ "key": "pin", "label": "Daten", "caps": ["digital"], "pullup": "10 kΩ zwischen Daten und 3,3 V (bei Modulen meist schon verbaut)" }],
+      "channels": [
+        { "q": "t", "defaultType": "TEMPERATURE", "typeOptions": ["TEMPERATURE"] },
+        { "q": "rh", "defaultType": "HUMIDITY", "typeOptions": ["HUMIDITY"] }
+      ],
+      "options": [
+        { "key": "model", "label": "Modell", "type": "enum", "values": ["DHT11", "DHT22"], "default": "DHT22" }
+      ],
+      "warmupMs": 2000,
+      "sleepSafe": true,
+      "wiring": "VCC an 3,3 V, GND an GND, DATA an den Pin.",
+      "libs": ["DHT sensor library", "Adafruit Unified Sensor"],
+      "esphome": "dht"
+    },
+    {
+      "id": "sht4x",
+      "name": "SHT40 / SHT41 / SHT45",
+      "summary": "Präziser Temperatur- und Feuchtesensor (I²C)",
+      "category": "climate",
+      "bus": "i2c",
+      "addresses": [68, 69, 70],
+      "defaultAddress": 68,
+      "channels": [
+        { "q": "t", "defaultType": "TEMPERATURE", "typeOptions": ["TEMPERATURE"] },
+        { "q": "rh", "defaultType": "HUMIDITY", "typeOptions": ["HUMIDITY"] }
+      ],
+      "options": [],
+      "warmupMs": 10,
+      "sleepSafe": true,
+      "wiring": "VIN an 3,3 V, GND, SDA und SCL an den I²C-Bus.",
+      "libs": ["Sensirion I2C SHT4x", "Sensirion Core"],
+      "esphome": "sht4x"
+    },
+    {
+      "id": "sht3x",
+      "name": "SHT30 / SHT31 / SHT35",
+      "summary": "Temperatur- und Feuchtesensor (I²C)",
+      "category": "climate",
+      "bus": "i2c",
+      "addresses": [68, 69],
+      "defaultAddress": 68,
+      "channels": [
+        { "q": "t", "defaultType": "TEMPERATURE", "typeOptions": ["TEMPERATURE"] },
+        { "q": "rh", "defaultType": "HUMIDITY", "typeOptions": ["HUMIDITY"] }
+      ],
+      "options": [],
+      "warmupMs": 10,
+      "sleepSafe": true,
+      "wiring": "VIN an 3,3 V, GND, SDA und SCL an den I²C-Bus.",
+      "libs": ["Adafruit SHT31 Library", "Adafruit BusIO"],
+      "esphome": "sht3xd"
+    },
+    {
+      "id": "aht",
+      "name": "AHT10 / AHT20",
+      "summary": "Günstiger Temperatur- und Feuchtesensor (I²C)",
+      "category": "climate",
+      "bus": "i2c",
+      "addresses": [56],
+      "defaultAddress": 56,
+      "channels": [
+        { "q": "t", "defaultType": "TEMPERATURE", "typeOptions": ["TEMPERATURE"] },
+        { "q": "rh", "defaultType": "HUMIDITY", "typeOptions": ["HUMIDITY"] }
+      ],
+      "options": [],
+      "warmupMs": 40,
+      "sleepSafe": true,
+      "wiring": "VIN an 3,3 V, GND, SDA und SCL an den I²C-Bus.",
+      "libs": ["Adafruit AHTX0", "Adafruit Unified Sensor", "Adafruit BusIO"],
+      "esphome": "aht10"
+    },
+    {
+      "id": "htu21d",
+      "name": "HTU21D / SHT21",
+      "summary": "Temperatur- und Feuchtesensor (I²C)",
+      "category": "climate",
+      "bus": "i2c",
+      "addresses": [64],
+      "defaultAddress": 64,
+      "channels": [
+        { "q": "t", "defaultType": "TEMPERATURE", "typeOptions": ["TEMPERATURE"] },
+        { "q": "rh", "defaultType": "HUMIDITY", "typeOptions": ["HUMIDITY"] }
+      ],
+      "options": [],
+      "warmupMs": 15,
+      "sleepSafe": true,
+      "wiring": "VIN an 3,3 V, GND, SDA und SCL an den I²C-Bus.",
+      "libs": ["Adafruit HTU21DF Library", "Adafruit BusIO"],
+      "esphome": "htu21d"
+    },
+    {
+      "id": "bme280",
+      "name": "BME280",
+      "summary": "Temperatur, Luftfeuchte und Luftdruck (I²C)",
+      "category": "climate",
+      "bus": "i2c",
+      "addresses": [118, 119],
+      "defaultAddress": 118,
+      "channels": [
+        { "q": "t", "defaultType": "TEMPERATURE", "typeOptions": ["TEMPERATURE"] },
+        { "q": "rh", "defaultType": "HUMIDITY", "typeOptions": ["HUMIDITY"] },
+        { "q": "p", "defaultType": "PRESSURE", "typeOptions": ["PRESSURE"] }
+      ],
+      "options": [],
+      "warmupMs": 10,
+      "sleepSafe": true,
+      "wiring": "VIN an 3,3 V, GND, SDA und SCL an den I²C-Bus. SDO auf GND = 0x76, auf 3,3 V = 0x77.",
+      "libs": ["Adafruit BME280 Library", "Adafruit Unified Sensor", "Adafruit BusIO"],
+      "esphome": "bme280_i2c"
+    },
+    {
+      "id": "bmp280",
+      "name": "BMP280",
+      "summary": "Temperatur und Luftdruck (I²C)",
+      "category": "climate",
+      "bus": "i2c",
+      "addresses": [118, 119],
+      "defaultAddress": 118,
+      "channels": [
+        { "q": "t", "defaultType": "TEMPERATURE", "typeOptions": ["TEMPERATURE"] },
+        { "q": "p", "defaultType": "PRESSURE", "typeOptions": ["PRESSURE"] }
+      ],
+      "options": [],
+      "warmupMs": 10,
+      "sleepSafe": true,
+      "wiring": "VIN an 3,3 V, GND, SDA und SCL an den I²C-Bus. SDO auf GND = 0x76, auf 3,3 V = 0x77.",
+      "libs": ["Adafruit BMP280 Library", "Adafruit Unified Sensor", "Adafruit BusIO"],
+      "esphome": "bmp280_i2c"
+    },
+    {
+      "id": "bh1750",
+      "name": "BH1750",
+      "summary": "Helligkeit in Lux (I²C)",
+      "category": "light",
+      "bus": "i2c",
+      "addresses": [35, 92],
+      "defaultAddress": 35,
+      "channels": [
+        { "q": "lux", "defaultType": "LIGHT", "typeOptions": ["LIGHT"] }
+      ],
+      "options": [],
+      "warmupMs": 180,
+      "sleepSafe": true,
+      "wiring": "VCC an 3,3 V, GND, SDA und SCL an den I²C-Bus. ADDR offen/GND = 0x23, 3,3 V = 0x5C.",
+      "libs": ["BH1750"],
+      "esphome": "bh1750"
+    },
+    {
+      "id": "soil",
+      "name": "Kapazitiver Bodenfeuchte-Sensor",
+      "summary": "Analoger Bodenfeuchte-Sensor (v1.2/v2.0), mit Kalibrierung trocken/nass",
+      "category": "soil",
+      "bus": "analog",
+      "pins": [{ "key": "pin", "label": "AOUT", "caps": ["adc"] }],
+      "channels": [
+        { "q": "m", "defaultType": "SOIL_MOISTURE", "typeOptions": ["SOIL_MOISTURE"] }
+      ],
+      "options": [
+        { "key": "dry", "label": "Spannung trocken (mV)", "type": "int", "min": 0, "max": 3300, "default": 2600 },
+        { "key": "wet", "label": "Spannung nass (mV)", "type": "int", "min": 0, "max": 3300, "default": 1100 }
+      ],
+      "warmupMs": 100,
+      "sleepSafe": true,
+      "wiring": "VCC an 3,3 V, GND, AOUT an einen ADC-Pin. Kalibrieren: einmal an der Luft, einmal im Wasserglas messen.",
+      "libs": [],
+      "esphome": "adc"
+    },
+    {
+      "id": "analog",
+      "name": "Analogwert (generisch)",
+      "summary": "Beliebiger Sensor mit Spannungsausgang, linear skaliert",
+      "category": "generic",
+      "bus": "analog",
+      "pins": [{ "key": "pin", "label": "Signal", "caps": ["adc"] }],
+      "channels": [
+        { "q": "x", "defaultType": "WATER_LEVEL", "typeOptions": ["*"] }
+      ],
+      "options": [
+        { "key": "scale", "label": "Faktor (Wert = mV × Faktor + Offset)", "type": "float", "min": -1000000, "max": 1000000, "default": 1 },
+        { "key": "offset", "label": "Offset", "type": "float", "min": -1000000, "max": 1000000, "default": 0 }
+      ],
+      "warmupMs": 10,
+      "sleepSafe": true,
+      "wiring": "Signal an einen ADC-Pin, höchstens 3,3 V am Pin.",
+      "libs": [],
+      "esphome": "adc"
+    },
+    {
+      "id": "battery",
+      "name": "Batteriespannung",
+      "summary": "Akkuspannung über Spannungsteiler messen",
+      "category": "power",
+      "bus": "analog",
+      "pins": [{ "key": "pin", "label": "Teiler-Mitte", "caps": ["adc"] }],
+      "channels": [
+        { "q": "v", "defaultType": "BATTERY_VOLTAGE", "typeOptions": ["BATTERY_VOLTAGE"] }
+      ],
+      "options": [
+        { "key": "divider", "label": "Teilerfaktor (z. B. 2 bei 100k/100k)", "type": "float", "min": 1, "max": 20, "default": 2 }
+      ],
+      "warmupMs": 10,
+      "sleepSafe": true,
+      "wiring": "Akku+ über zwei gleiche Widerstände (z. B. 100 kΩ/100 kΩ) nach GND, Mitte an einen ADC-Pin.",
+      "libs": [],
+      "esphome": "adc"
+    }
+  ]
+}

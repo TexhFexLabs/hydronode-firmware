@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "modes": [
+    {
+      "id": "ALWAYS_ON",
+      "name": "Dauerbetrieb",
+      "summary": "WLAN bleibt verbunden, zwischen den Messungen wird nur gewartet.",
+      "typicalCurrent": "80–120 mA",
+      "minIntervalSeconds": 10,
+      "keepsConnection": true,
+      "wakePin": false
+    },
+    {
+      "id": "MODEM_SLEEP",
+      "name": "Modem-Sleep",
+      "summary": "WLAN bleibt verbunden, das Funkmodul schläft zwischen den Beacons.",
+      "typicalCurrent": "20–40 mA",
+      "minIntervalSeconds": 10,
+      "keepsConnection": true,
+      "wakePin": false
+    },
+    {
+      "id": "LIGHT_SLEEP",
+      "name": "Light-Sleep",
+      "summary": "CPU pausiert, Speicher bleibt erhalten. WLAN verbindet sich pro Messung neu.",
+      "typicalCurrent": "ca. 1 mA im Schlaf",
+      "minIntervalSeconds": 20,
+      "keepsConnection": false,
+      "wakePin": true
+    },
+    {
+      "id": "AUTO_LIGHT_SLEEP",
+      "name": "Auto-Light-Sleep",
+      "summary": "Power-Management schläft automatisch und hält die WLAN-Verbindung. Braucht einen Core mit CONFIG_PM_ENABLE, der vorkompilierte Arduino-Core 3.3.12 hat das nicht, deshalb bei keinem Board freigeschaltet.",
+      "typicalCurrent": "2–5 mA",
+      "minIntervalSeconds": 10,
+      "keepsConnection": true,
+      "wakePin": false,
+      "requires": "CONFIG_PM_ENABLE"
+    },
+    {
+      "id": "DEEP_SLEEP",
+      "name": "Deep-Sleep",
+      "summary": "Alles aus bis auf die Uhr. Das Gerät startet pro Messung neu.",
+      "typicalCurrent": "10–150 µA (Chip), Dev-Boards oft 1–10 mA",
+      "minIntervalSeconds": 30,
+      "recommendedIntervalSeconds": 60,
+      "keepsConnection": false,
+      "wakePin": true
+    },
+    {
+      "id": "HIBERNATE",
+      "name": "Hibernate",
+      "summary": "Wie Deep-Sleep, zusätzlich RTC-Speicher aus. Nur Timer weckt, kein Schnell-Reconnect.",
+      "typicalCurrent": "ca. 5 µA (Chip)",
+      "minIntervalSeconds": 30,
+      "recommendedIntervalSeconds": 300,
+      "keepsConnection": false,
+      "wakePin": false
+    }
+  ]
+}
