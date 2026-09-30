@@ -25,7 +25,7 @@
       "warmupMs": 750,
       "sleepSafe": true,
       "wiring": "Rot an 3,3 V, Schwarz an GND, Gelb an den Datenpin. 4,7 kΩ zwischen Gelb und 3,3 V.",
-      "libs": ["OneWire", "DallasTemperature"],
+      "libs": ["OneWireNg", "DallasTemperature"],
       "esphome": "dallas_temp"
     },
     {

@@ -24,6 +24,18 @@ jobs:
           name: catalog
           path: dist/catalog.json
 
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install PlatformIO
+        run: pip install platformio==6.2.0
+      - name: Config parser tests
+        run: pio test -e native
+
   firmware:
     runs-on: ubuntu-latest
     strategy:

@@ -20,6 +20,9 @@ over USB (Web Serial). The WiFi password never leaves the browser.
 | `partitions/` | flash layout (`hncfg` at `0x390000`, 8 KB) |
 | `tools/validate-catalog.mjs` | consistency check, writes `dist/catalog.json` for the web app |
 | `tools/license-check.mjs` | license gate, writes `THIRD_PARTY_LICENSES.md` |
+| `tools/encode-config.mjs` | reference encoder for the config block |
+| `tools/package-release.py` | merged images, `manifest.json`, `SHA256SUMS`, release zip |
+| `catalog/fixtures/` | golden config block shared with the web encoder |
 
 ## Build
 
@@ -29,7 +32,17 @@ pio run                      # all chip families
 pio test -e native           # host tests
 node tools/validate-catalog.mjs --out dist
 node tools/license-check.mjs --out dist/THIRD_PARTY_LICENSES.md
+python tools/package-release.py   # merged images + manifest.json → dist/
 ```
+
+A release tag `vX.Y.Z` (must match `version` in `platformio.ini`) runs the same steps in
+CI and publishes `hydronode-firmware-X.Y.Z.zip` plus the Arduino core source.
+
+## Serial status lines
+
+The firmware prints machine readable lines at 115200 baud, all prefixed with `HN:`
+(`BOOT`, `CFG`, `DEV`, `OW`, `WIFI`, `SEND`, `SLEEP`, `ERR …`). The web flasher shows them
+as a checklist. Secrets are never printed.
 
 ## Licensing
 

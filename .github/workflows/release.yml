@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install PlatformIO
+        run: pip install platformio==6.2.0
+      - name: Check tag matches firmware version
+        run: |
+          version=$(sed -n 's/^version = //p' platformio.ini)
+          test "v$version" = "$GITHUB_REF_NAME"
+      - name: Catalog
+        run: node tools/validate-catalog.mjs --out dist
+      - name: Host tests
+        run: pio test -e native
+      - name: Build all families
+        run: pio run
+      - name: License gate
+        run: node tools/license-check.mjs --out dist/THIRD_PARTY_LICENSES.md
+      - name: Package
+        run: python tools/package-release.py
+      # LGPL-2.1: ship the exact source of the Arduino core with every binary release.
+      - name: Attach core source
+        run: |
+          core=$(node -e "console.log(require('./catalog/libraries.json').cores[0].source)")
+          curl -fsSL "$core" -o dist/arduino-esp32-core-source.tar.gz
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/hydronode-firmware-*.zip
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/hydronode-firmware-*.zip \
+            dist/arduino-esp32-core-source.tar.gz \
+            --title "$GITHUB_REF_NAME" --generate-notes

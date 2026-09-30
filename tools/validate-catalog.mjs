@@ -33,7 +33,7 @@ for (const name of libs.base) if (!libByName.has(name)) fail(`base library ${nam
 
 // platformio.ini lib_deps must match libraries.json exactly, in both directions.
 const ini = readFileSync(join(root, 'platformio.ini'), 'utf8');
-const envBlock = ini.split(/^\[env\]\s*$/m)[1]?.split(/^\[/m)[0] ?? '';
+const envBlock = ini.split(/^\[esp\]\s*$/m)[1]?.split(/^\[/m)[0] ?? '';
 // lib_deps continues on indented lines until the next key.
 const depLines = [];
 for (const line of (envBlock.split(/^lib_deps\s*=\s*$/m)[1] ?? '').split('\n').slice(1)) {

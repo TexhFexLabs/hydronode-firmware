@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "board": "esp32c3-supermini",
+  "sensor": { "id": "550e8400-e29b-41d4-a716-446655440000", "secret": "aB3dE5fG7hI9jK1lM2nO4pQ6rS8tU0vW", "host": "hydronode.tech" },
+  "wifi": { "ssid": "Gärten WLAN", "pass": "correct horse battery staple", "ip": null },
+  "interval": 300,
+  "power": { "mode": "DEEP_SLEEP", "wakePin": 3, "wakeLevel": 0, "sensorPowerPin": 10, "fastReconnect": true },
+  "i2c": [{ "sda": 6, "scl": 7, "hz": 100000 }],
+  "devices": [
+    { "drv": "ds18b20", "pin": 4, "ch": [{ "q": "t", "idx": 0, "type": "WATER_TEMPERATURE" }, { "q": "t", "addr": "28FF641E8716045C", "type": "SOIL_TEMPERATURE" }] },
+    { "drv": "sht4x", "bus": 0, "addr": 68, "ch": [{ "q": "t", "type": "TEMPERATURE" }, { "q": "rh", "type": "HUMIDITY" }] },
+    { "drv": "dht", "pin": 5, "opt": { "model": "DHT22" }, "ch": [{ "q": "t", "type": "TEMPERATURE2" }, { "q": "rh", "type": "HUMIDITY2" }] },
+    { "drv": "soil", "pin": 1, "opt": { "dry": 2600, "wet": 1100 }, "ch": [{ "q": "m", "type": "SOIL_MOISTURE" }] }
+  ]
+}

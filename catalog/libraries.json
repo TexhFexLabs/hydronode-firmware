@@ -52,12 +52,11 @@
       "url": "https://github.com/tzapu/WiFiManager"
     },
     {
-      "name": "OneWire",
-      "pio": "paulstoffregen/OneWire",
-      "version": "2.3.8",
-      "license": "MIT",
-      "url": "https://github.com/PaulStoffregen/OneWire",
-      "licenseNote": "MIT-artige Lizenz im Kopf von OneWire.cpp"
+      "name": "OneWireNg",
+      "pio": "pstolarz/OneWireNg",
+      "version": "0.14.1",
+      "license": "BSD-2-Clause",
+      "url": "https://github.com/pstolarz/OneWireNg"
     },
     {
       "name": "DallasTemperature",
