@@ -491,6 +491,11 @@
         "sda": 21,
         "scl": 22
       },
+      "defaultPins": {
+        "onewire": [4],
+        "gpio": [27],
+        "analog": [34, 35]
+      },
       "batteryFriendly": false
     },
     {
@@ -509,6 +514,11 @@
         "sda": 21,
         "scl": 22
       },
+      "defaultPins": {
+        "onewire": [4],
+        "gpio": [27],
+        "analog": [34, 35]
+      },
       "batteryFriendly": false
     },
     {
@@ -523,6 +533,11 @@
       "i2c": {
         "sda": 21,
         "scl": 22
+      },
+      "defaultPins": {
+        "onewire": [4],
+        "gpio": [27],
+        "analog": [34, 35]
       },
       "batteryFriendly": false
     },
@@ -539,6 +554,11 @@
         "sda": 33,
         "scl": 35
       },
+      "defaultPins": {
+        "onewire": [16],
+        "gpio": [18],
+        "analog": [1, 2]
+      },
       "led": 15,
       "batteryFriendly": false
     },
@@ -554,6 +574,11 @@
       "i2c": {
         "sda": 8,
         "scl": 9
+      },
+      "defaultPins": {
+        "onewire": [17],
+        "gpio": [18],
+        "analog": [1, 2]
       },
       "batteryFriendly": false
     },
@@ -586,6 +611,11 @@
       "i2c": {
         "sda": 8,
         "scl": 9
+      },
+      "defaultPins": {
+        "onewire": [12],
+        "gpio": [13],
+        "analog": [1, 2]
       },
       "led": 48,
       "batteryFriendly": true
@@ -628,6 +658,11 @@
         "sda": 5,
         "scl": 6
       },
+      "defaultPins": {
+        "onewire": [2],
+        "gpio": [4],
+        "analog": [1, 7]
+      },
       "led": 21,
       "batteryFriendly": true
     },
@@ -643,6 +678,11 @@
       "i2c": {
         "sda": 6,
         "scl": 7
+      },
+      "defaultPins": {
+        "onewire": [10],
+        "gpio": [5],
+        "analog": [3, 4]
       },
       "batteryFriendly": false
     },
@@ -673,6 +713,11 @@
       "i2c": {
         "sda": 6,
         "scl": 7
+      },
+      "defaultPins": {
+        "onewire": [10],
+        "gpio": [5],
+        "analog": [3, 4]
       },
       "led": 8,
       "batteryFriendly": true
@@ -715,6 +760,11 @@
         "sda": 6,
         "scl": 7
       },
+      "defaultPins": {
+        "onewire": [10],
+        "gpio": [5],
+        "analog": [3, 4]
+      },
       "batteryFriendly": true
     },
     {
@@ -729,6 +779,11 @@
       "i2c": {
         "sda": 6,
         "scl": 7
+      },
+      "defaultPins": {
+        "onewire": [18],
+        "gpio": [19],
+        "analog": [0, 1]
       },
       "batteryFriendly": false
     },
@@ -773,6 +828,11 @@
         "sda": 22,
         "scl": 23
       },
+      "defaultPins": {
+        "onewire": [21],
+        "gpio": [19],
+        "analog": [0, 1]
+      },
       "led": 15,
       "batteryFriendly": true
     },
@@ -813,6 +873,11 @@
       "i2c": {
         "sda": 4,
         "scl": 5
+      },
+      "defaultPins": {
+        "onewire": [14],
+        "gpio": [12],
+        "analog": [17]
       },
       "led": 2,
       "adcRangeMv": 3200,
@@ -855,6 +920,11 @@
       "i2c": {
         "sda": 4,
         "scl": 5
+      },
+      "defaultPins": {
+        "onewire": [14],
+        "gpio": [12],
+        "analog": [17]
       },
       "led": 2,
       "adcRangeMv": 3200,

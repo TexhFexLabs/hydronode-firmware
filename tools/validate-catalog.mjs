@@ -95,6 +95,24 @@ for (const b of boards.boards) {
     if (!fam.gpios.includes(Number(pin))) fail(`board ${b.id}: label for unknown pin ${pin}`);
   }
   if (!['uart', 'native', 'both'].includes(b.usb)) fail(`board ${b.id}: usb must be uart|native|both`);
+
+  // Default pins are what the web app suggests first, so each must work without a warning:
+  // offered on the board, not a boot or console pin, not the I²C pair, ADC where analog.
+  const offered = fam.gpios.filter((g) => !b.exclude.includes(g) && (!b.exposed?.length || b.exposed.includes(g)));
+  const seenDefaults = new Set();
+  for (const [bus, pins] of Object.entries(b.defaultPins ?? {})) {
+    if (!['onewire', 'gpio', 'analog'].includes(bus)) fail(`board ${b.id}: defaultPins.${bus} is not a pin bus`);
+    for (const pin of pins) {
+      const at = `board ${b.id}: defaultPins.${bus} ${pin}`;
+      if (!offered.includes(pin)) fail(`${at} is not offered on this board`);
+      if (fam.strapping.includes(pin) || fam.serial.includes(pin)) fail(`${at} is a boot or console pin`);
+      if (pin === b.i2c.sda || pin === b.i2c.scl) fail(`${at} is the I²C default`);
+      if (bus === 'analog' ? !fam.adc.includes(pin) : fam.inputOnly.includes(pin)) fail(`${at} cannot do ${bus}`);
+      if (seenDefaults.has(pin)) fail(`${at} is the default of another bus too`);
+      seenDefaults.add(pin);
+    }
+  }
+  if (!b.defaultPins) fail(`board ${b.id}: defaultPins missing`);
 }
 
 // --- drivers --------------------------------------------------------------------

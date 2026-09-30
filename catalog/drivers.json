@@ -487,7 +487,7 @@
       "pins": [
         {
           "key": "pin",
-          "label": "Divider middle",
+          "label": "Divider midpoint",
           "caps": [
             "adc"
           ]
@@ -514,7 +514,7 @@
       ],
       "warmupMs": 10,
       "sleepSafe": true,
-      "wiring": "Battery + through two equal resistors (e.g. 100 kΩ / 100 kΩ) to GND, the middle to an ADC pin.",
+      "wiring": "Battery + to a 100 kΩ resistor, that to a second 100 kΩ resistor, that to GND. The point between the two resistors goes to the ADC pin, which then sees half the battery voltage (4.2 V full LiPo reads 2.1 V). The divider factor 2 turns it back into the battery voltage.",
       "libs": [],
       "esphome": "adc"
     }
