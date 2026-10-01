@@ -40,29 +40,15 @@ for (const line of (envBlock.split(/^lib_deps\s*=\s*$/m)[1] ?? '').split('\n').s
   if (!/^\s+\S/.test(line)) break;
   depLines.push(line.trim());
 }
+// "owner/Name@1.2.3" from the registry, or "https://….git#1.2.3" for a release tag on GitHub.
 const iniDeps = new Map(depLines.map((l) => {
-  const at = l.lastIndexOf('@');
+  const at = l.startsWith('https://') ? l.lastIndexOf('#') : l.lastIndexOf('@');
   return [l.slice(0, at), l.slice(at + 1)];
 }));
-// [env:esp8266] may differ only in HydroNode-Library: ESP8266 support starts with 1.4.0, which
-// is fetched from its GitHub release tag (the PlatformIO registry still lists 1.3.0).
+// [env:esp8266] uses the same list as [esp].
 const esp8266Block = ini.split(/^\[env:esp8266\]\s*$/m)[1]?.split(/^\[/m)[0] ?? '';
-if (esp8266Block) {
-  const lines = [];
-  for (const line of (esp8266Block.split(/^lib_deps\s*=\s*$/m)[1] ?? '').split('\n').slice(1)) {
-    if (!/^\s+\S/.test(line)) break;
-    lines.push(line.trim());
-  }
-  for (const dep of lines) {
-    if (dep.startsWith('https://github.com/TexhFexLabs/HydroNode-Library.git#')) {
-      if (!/#\d+\.\d+\.\d+$/.test(dep)) fail(`[env:esp8266]: ${dep} must pin a release tag`);
-      continue;
-    }
-    if (!depLines.includes(dep)) fail(`[env:esp8266]: ${dep} differs from [esp]`);
-  }
-  for (const dep of depLines) {
-    if (!dep.startsWith('texhfexlabs/HydroNode-Library') && !lines.includes(dep)) fail(`[env:esp8266]: ${dep} missing`);
-  }
+if (esp8266Block && !/^lib_deps\s*=\s*\$\{esp\.lib_deps\}\s*$/m.test(esp8266Block)) {
+  fail('[env:esp8266]: lib_deps must be ${esp.lib_deps}');
 }
 for (const lib of libs.libraries) {
   if (iniDeps.get(lib.pio) !== lib.version) fail(`platformio.ini: ${lib.pio}@${lib.version} expected, found ${iniDeps.get(lib.pio) ?? 'nothing'}`);
@@ -151,6 +137,8 @@ for (const d of drivers.drivers) {
     for (const t of ch.typeOptions) if (t !== '*' && !TYPE_RE.test(t)) fail(`driver ${d.id}: invalid type option ${t}`);
   }
   for (const name of d.libs) if (!libByName.has(name)) fail(`driver ${d.id}: library ${name} missing in libraries.json`);
+  // Sampling every second needs a running CPU; such a sensor can never be sleep safe.
+  if (d.continuous && d.sleepSafe) fail(`driver ${d.id}: continuous drivers cannot be sleepSafe`);
   for (const o of d.options) {
     if (!['enum', 'int', 'float'].includes(o.type)) fail(`driver ${d.id}: option ${o.key} has unknown type ${o.type}`);
     if (o.type === 'enum' && !o.values.includes(o.default)) fail(`driver ${d.id}: option ${o.key} default not in values`);

@@ -28,6 +28,38 @@
     "x": {
       "name": "Value",
       "unit": ""
+    },
+    "gas": {
+      "name": "Gas resistance",
+      "unit": "kΩ"
+    },
+    "co2": {
+      "name": "CO₂",
+      "unit": "ppm"
+    },
+    "eco2": {
+      "name": "eCO₂ (estimated)",
+      "unit": "ppm"
+    },
+    "tvoc": {
+      "name": "TVOC",
+      "unit": "ppb"
+    },
+    "voc": {
+      "name": "VOC index",
+      "unit": ""
+    },
+    "nox": {
+      "name": "NOx index",
+      "unit": ""
+    },
+    "i": {
+      "name": "Current",
+      "unit": "A"
+    },
+    "w": {
+      "name": "Power",
+      "unit": "W"
     }
   },
   "drivers": [
@@ -60,7 +92,7 @@
         }
       ],
       "options": [],
-      "warmupMs": 750,
+      "warmupMs": 10,
       "sleepSafe": true,
       "wiring": "Red to 3.3 V, black to GND, yellow to the data pin. 4.7 kΩ between yellow and 3.3 V.",
       "libs": [
@@ -71,7 +103,7 @@
     },
     {
       "id": "dht",
-      "name": "DHT11 / DHT22",
+      "name": "DHT11 / DHT22 / AM2302",
       "summary": "Simple temperature and humidity sensor",
       "category": "climate",
       "bus": "gpio",
@@ -82,7 +114,7 @@
           "caps": [
             "digital"
           ],
-          "pullup": "10 kΩ between data and 3.3 V (usually already on modules)"
+          "pullup": "10 kΩ between data and 3.3 V for long cables (modules have one, short wires work with the ESP's internal pull-up)"
         }
       ],
       "channels": [
@@ -104,7 +136,7 @@
       "options": [
         {
           "key": "model",
-          "label": "Model",
+          "label": "Model (DHT22 = AM2302)",
           "type": "enum",
           "values": [
             "DHT11",
@@ -113,7 +145,7 @@
           "default": "DHT22"
         }
       ],
-      "warmupMs": 2000,
+      "warmupMs": 1200,
       "sleepSafe": true,
       "wiring": "VCC to 3.3 V, GND to GND, DATA to the pin.",
       "libs": [
@@ -374,7 +406,7 @@
         }
       ],
       "options": [],
-      "warmupMs": 180,
+      "warmupMs": 0,
       "sleepSafe": true,
       "wiring": "VCC to 3.3 V, GND, SDA and SCL to the I²C bus. ADDR open or GND = 0x23, 3.3 V = 0x5C.",
       "libs": [
@@ -517,6 +549,309 @@
       "wiring": "Battery + to a 100 kΩ resistor, that to a second 100 kΩ resistor, that to GND. The point between the two resistors goes to the ADC pin, which then sees half the battery voltage (4.2 V full LiPo reads 2.1 V). The divider factor 2 turns it back into the battery voltage.",
       "libs": [],
       "esphome": "adc"
+    },
+    {
+      "id": "bme680",
+      "name": "BME680",
+      "summary": "Temperature, humidity, pressure and gas resistance (I²C)",
+      "category": "air",
+      "bus": "i2c",
+      "addresses": [
+        119,
+        118
+      ],
+      "defaultAddress": 119,
+      "channels": [
+        {
+          "q": "t",
+          "defaultType": "TEMPERATURE",
+          "typeOptions": [
+            "TEMPERATURE"
+          ]
+        },
+        {
+          "q": "rh",
+          "defaultType": "HUMIDITY",
+          "typeOptions": [
+            "HUMIDITY"
+          ]
+        },
+        {
+          "q": "p",
+          "defaultType": "PRESSURE",
+          "typeOptions": [
+            "PRESSURE"
+          ]
+        },
+        {
+          "q": "gas",
+          "defaultType": "GAS_RESISTANCE",
+          "typeOptions": [
+            "GAS_RESISTANCE"
+          ]
+        }
+      ],
+      "options": [],
+      "warmupMs": 10,
+      "sleepSafe": true,
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. SDO to 3.3 V = 0x77 (most boards), to GND = 0x76. Gas resistance is the raw sensor value: it falls when the air carries more volatile compounds.",
+      "libs": [
+        "Adafruit BME680 Library",
+        "Adafruit Unified Sensor",
+        "Adafruit BusIO"
+      ],
+      "esphome": "bme680"
+    },
+    {
+      "id": "sgp30",
+      "name": "SGP30",
+      "summary": "eCO₂ and TVOC estimate (I²C), samples every second",
+      "category": "air",
+      "bus": "i2c",
+      "addresses": [
+        88
+      ],
+      "defaultAddress": 88,
+      "channels": [
+        {
+          "q": "eco2",
+          "defaultType": "ECO2",
+          "typeOptions": [
+            "ECO2"
+          ]
+        },
+        {
+          "q": "tvoc",
+          "defaultType": "VOC",
+          "typeOptions": [
+            "VOC"
+          ]
+        }
+      ],
+      "options": [],
+      "warmupMs": 0,
+      "sleepSafe": false,
+      "continuous": true,
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. Needs Always on or Modem sleep: it measures once per second to keep its baseline. Values start after 15 s. With a temperature and humidity sensor on the same device it compensates humidity.",
+      "libs": [
+        "Adafruit SGP30 Sensor",
+        "Adafruit BusIO"
+      ],
+      "esphome": "sgp30"
+    },
+    {
+      "id": "sgp40",
+      "name": "SGP40",
+      "summary": "VOC index 1–500 (I²C), samples every second",
+      "category": "air",
+      "bus": "i2c",
+      "addresses": [
+        89
+      ],
+      "defaultAddress": 89,
+      "channels": [
+        {
+          "q": "voc",
+          "defaultType": "VOC_INDEX",
+          "typeOptions": [
+            "VOC_INDEX"
+          ]
+        }
+      ],
+      "options": [],
+      "warmupMs": 0,
+      "sleepSafe": false,
+      "continuous": true,
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. Needs Always on or Modem sleep: the VOC index learns from one sample per second. 100 is the room's normal air; the first value comes after about a minute. Add a temperature and humidity sensor for compensation.",
+      "libs": [
+        "Adafruit SGP40 Sensor",
+        "Adafruit BusIO"
+      ],
+      "esphome": "sgp4x"
+    },
+    {
+      "id": "sgp41",
+      "name": "SGP41",
+      "summary": "VOC and NOx index (I²C), samples every second",
+      "category": "air",
+      "bus": "i2c",
+      "addresses": [
+        89
+      ],
+      "defaultAddress": 89,
+      "channels": [
+        {
+          "q": "voc",
+          "defaultType": "VOC_INDEX",
+          "typeOptions": [
+            "VOC_INDEX"
+          ]
+        },
+        {
+          "q": "nox",
+          "defaultType": "NOX_INDEX",
+          "typeOptions": [
+            "NOX_INDEX"
+          ]
+        }
+      ],
+      "options": [],
+      "warmupMs": 0,
+      "sleepSafe": false,
+      "continuous": true,
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. Needs Always on or Modem sleep: both indices learn from one sample per second. VOC starts after about a minute, NOx after about five. Add a temperature and humidity sensor for compensation.",
+      "libs": [
+        "Sensirion I2C SGP41",
+        "Sensirion Gas Index Algorithm",
+        "Sensirion Core"
+      ],
+      "esphome": "sgp4x"
+    },
+    {
+      "id": "scd4x",
+      "name": "SCD40 / SCD41",
+      "summary": "True CO₂ plus temperature and humidity (I²C)",
+      "category": "air",
+      "bus": "i2c",
+      "addresses": [
+        98
+      ],
+      "defaultAddress": 98,
+      "channels": [
+        {
+          "q": "co2",
+          "defaultType": "CO2",
+          "typeOptions": [
+            "CO2"
+          ]
+        },
+        {
+          "q": "t",
+          "defaultType": "TEMPERATURE",
+          "typeOptions": [
+            "TEMPERATURE"
+          ]
+        },
+        {
+          "q": "rh",
+          "defaultType": "HUMIDITY",
+          "typeOptions": [
+            "HUMIDITY"
+          ]
+        }
+      ],
+      "options": [
+        {
+          "key": "model",
+          "label": "Model",
+          "type": "enum",
+          "values": [
+            "SCD40",
+            "SCD41"
+          ],
+          "default": "SCD41"
+        }
+      ],
+      "warmupMs": 5000,
+      "sleepSafe": true,
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. Measures every 5 s and calibrates itself against fresh air (open a window now and then). In deep sleep only the SCD41 works: it measures once per wake-up.",
+      "libs": [
+        "Sensirion I2C SCD4x",
+        "Sensirion Core"
+      ],
+      "esphome": "scd4x"
+    },
+    {
+      "id": "veml7700",
+      "name": "VEML7700",
+      "summary": "Ambient light from moonlight to sunlight (I²C)",
+      "category": "light",
+      "bus": "i2c",
+      "addresses": [
+        16
+      ],
+      "defaultAddress": 16,
+      "channels": [
+        {
+          "q": "lux",
+          "defaultType": "LIGHT",
+          "typeOptions": [
+            "LIGHT"
+          ]
+        }
+      ],
+      "options": [],
+      "warmupMs": 5,
+      "sleepSafe": true,
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. Gain and integration time adjust to the light automatically.",
+      "libs": [
+        "Adafruit VEML7700 Library",
+        "Adafruit BusIO"
+      ],
+      "esphome": "veml7700"
+    },
+    {
+      "id": "ina219",
+      "name": "INA219",
+      "summary": "Voltage, current and power of a DC circuit (I²C)",
+      "category": "power",
+      "bus": "i2c",
+      "addresses": [
+        64,
+        65,
+        68,
+        69
+      ],
+      "defaultAddress": 64,
+      "channels": [
+        {
+          "q": "v",
+          "defaultType": "VOLTAGE",
+          "typeOptions": [
+            "VOLTAGE",
+            "BATTERY_VOLTAGE",
+            "SOLAR_VOLTAGE"
+          ]
+        },
+        {
+          "q": "i",
+          "defaultType": "CURRENT",
+          "typeOptions": [
+            "CURRENT",
+            "BATTERY_CURRENT",
+            "SOLAR_CURRENT"
+          ]
+        },
+        {
+          "q": "w",
+          "defaultType": "POWER",
+          "typeOptions": [
+            "POWER",
+            "SOLAR_POWER"
+          ]
+        }
+      ],
+      "options": [
+        {
+          "key": "range",
+          "label": "Range",
+          "type": "enum",
+          "values": [
+            "32V_2A",
+            "32V_1A",
+            "16V_400mA"
+          ],
+          "default": "32V_2A"
+        }
+      ],
+      "warmupMs": 5,
+      "sleepSafe": true,
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. VIN+ and VIN− go in series into the measured circuit, up to 26 V. A0/A1 bridges set the address (0x40 to 0x45). The smallest range that fits gives the finest current resolution.",
+      "libs": [
+        "Adafruit INA219",
+        "Adafruit BusIO"
+      ],
+      "esphome": "ina219"
     }
   ]
 }

@@ -28,6 +28,12 @@ public:
     // Time the sensor needs after power-up before the first valid reading.
     virtual uint32_t warmupMs() const { return 0; }
 
+    // Gas sensors (SGP30/40/41) run their algorithm on one sample per second. The firmware
+    // calls tick() every second while it waits between cycles; the catalog only offers them
+    // with Always on and Modem sleep, where the CPU keeps running.
+    virtual bool continuous() const { return false; }
+    virtual void tick() {}
+
     const DeviceConfig& cfg() const { return cfg_; }
 
 protected:
@@ -37,7 +43,17 @@ protected:
     const DeviceConfig& cfg_;
 };
 
-// Creates the driver for `cfg`, or nullptr for an unknown driver id.
-Driver* createDriver(const DeviceConfig& cfg, TwoWire* buses[kMaxI2cBuses], uint16_t adcRangeMv);
+// Latest temperature and humidity measured by any sensor on the device, NAN when there is none.
+// Gas sensors use it for humidity compensation instead of a fixed 25 °C / 50 %.
+struct Ambient {
+    float t;
+    float rh;
+};
+Ambient& ambient();
+
+// Creates the driver for `cfg`, or nullptr for an unknown driver id. `restartsEachCycle` is true
+// in deep sleep and hibernate, where a sensor cannot keep measuring between readings.
+Driver* createDriver(const DeviceConfig& cfg, TwoWire* buses[kMaxI2cBuses], uint16_t adcRangeMv,
+                     bool restartsEachCycle);
 
 }  // namespace hn

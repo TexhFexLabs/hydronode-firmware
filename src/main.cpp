@@ -72,7 +72,36 @@ uint32_t maxWarmupMs() {
     return ms;
 }
 
-void startSensors() {
+bool restartsEachCycle() { return cfg.mode == SleepMode::DeepSleep || cfg.mode == SleepMode::Hibernate; }
+
+bool anyContinuous() {
+    for (uint8_t i = 0; i < cfg.deviceCount; i++) {
+        if (drivers[i] && drivers[i]->continuous()) return true;
+    }
+    return false;
+}
+
+// Waits `ms`, giving continuous gas sensors their one sample per second meanwhile.
+void waitTicking(uint64_t ms) {
+    if (!anyContinuous()) {
+        delay(ms);
+        return;
+    }
+    uint32_t start = millis();
+    while (millis() - start < ms) {
+        uint32_t tickStart = millis();
+        for (uint8_t i = 0; i < cfg.deviceCount; i++) {
+            if (drivers[i] && drivers[i]->continuous()) drivers[i]->tick();
+        }
+        uint32_t spent = millis() - tickStart;
+        uint64_t left = ms - (millis() - start);
+        delay(min<uint64_t>(left, spent < 1000 ? 1000 - spent : 0));
+    }
+}
+
+// `warm`: the sensors kept their supply since the last cycle (timer wake-up without a sensor
+// power pin), so the power-up warm-up can be skipped. Saves up to 5 s awake per wake-up.
+void startSensors(bool warm = false) {
     power::sensorsOn(cfg);
     for (uint8_t i = 0; i < cfg.i2cCount; i++) {
         if (!buses[i]) {
@@ -103,7 +132,7 @@ void startSensors() {
     if (cfg.sensorPowerPin >= 0) delay(50);
     for (uint8_t i = 0; i < cfg.deviceCount; i++) {
         if (!drivers[i]) {
-            drivers[i] = createDriver(cfg.devices[i], buses, cfg.adcRangeMv);
+            drivers[i] = createDriver(cfg.devices[i], buses, cfg.adcRangeMv, restartsEachCycle());
             if (!drivers[i]) {
                 status::line("ERR SENSOR %s unknown", cfg.devices[i].driver);
                 continue;
@@ -112,7 +141,20 @@ void startSensors() {
         bool ok = drivers[i]->begin();
         status::line("DEV %s %s", cfg.devices[i].driver, ok ? "ok" : "missing");
     }
-    delay(maxWarmupMs());
+    if (!warm) delay(maxWarmupMs());
+}
+
+// Gas sensors compensate with the temperature and humidity another sensor measured.
+void updateAmbient(const Reading readings[][kMaxChannels]) {
+    for (uint8_t i = 0; i < cfg.deviceCount; i++) {
+        if (!drivers[i] || drivers[i]->continuous()) continue;
+        for (uint8_t c = 0; c < cfg.devices[i].channelCount; c++) {
+            const Reading& r = readings[i][c];
+            if (!r.ok) continue;
+            if (strcmp(cfg.devices[i].channels[c].q, "t") == 0) ambient().t = r.value;
+            if (strcmp(cfg.devices[i].channels[c].q, "rh") == 0) ambient().rh = r.value;
+        }
+    }
 }
 
 // Reads every sensor, then sends. Reading first keeps the radio off while the
@@ -123,6 +165,7 @@ void measureAndSend() {
         for (uint8_t c = 0; c < kMaxChannels; c++) readings[i][c] = {nullptr, 0, false};
         if (drivers[i]) drivers[i]->read(readings[i]);
     }
+    updateAmbient(readings);
 
     if (!net::connected() && !net::connect(cfg, kWifiTimeoutMs)) return;
     if (!hydro) {
@@ -135,7 +178,10 @@ void measureAndSend() {
             const Reading& r = readings[i][c];
             if (!r.type) continue;
             if (!r.ok) {
-                status::line("ERR SENSOR %s %s", cfg.devices[i].driver, cfg.devices[i].channels[c].type);
+                // A gas sensor still learning its baseline is not a wiring problem.
+                bool settling = drivers[i] && drivers[i]->continuous();
+                status::line("%s SENSOR %s %s", settling ? "WAIT" : "ERR", cfg.devices[i].driver,
+                             cfg.devices[i].channels[c].type);
                 continue;
             }
             int code = hydro->sendValue(r.type, r.value);
@@ -169,7 +215,8 @@ void setup() {
     status::line("CFG ok board=%s devices=%u mode=%s interval=%lu", cfg.board, cfg.deviceCount,
                  sleepModeName(cfg.mode), (unsigned long)cfg.intervalSeconds);
 
-    startSensors();
+    // After a timer wake-up the sensors stayed powered unless a power pin switched them off.
+    startSensors(cfg.sensorPowerPin < 0 && strcmp(power::wakeReason(), "TIMER") == 0);
     if (cfg.mode == SleepMode::AlwaysOn || cfg.mode == SleepMode::ModemSleep) {
         if (net::connect(cfg, kWifiTimeoutMs)) net::setPowerSave(cfg.mode == SleepMode::ModemSleep);
     }
@@ -190,7 +237,7 @@ void loop() {
     switch (cfg.mode) {
         case SleepMode::AlwaysOn:
         case SleepMode::ModemSleep:
-            delay(uint64_t(sleepFor) * 1000);
+            waitTicking(uint64_t(sleepFor) * 1000);
             cycleStart = millis();
             break;
 
@@ -199,11 +246,8 @@ void loop() {
             power::sensorsOff(cfg);
             power::lightSleep(cfg, sleepFor);
             cycleStart = millis();
-            if (cfg.sensorPowerPin >= 0) {
-                startSensors();  // sensors lost power, initialise again
-            } else {
-                delay(maxWarmupMs());
-            }
+            // Sensors without a power pin stayed powered and settled: no warm-up needed.
+            if (cfg.sensorPowerPin >= 0) startSensors();  // sensors lost power, initialise again
             break;
 
         case SleepMode::DeepSleep:
