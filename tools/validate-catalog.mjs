@@ -86,6 +86,13 @@ for (const [id, fam] of Object.entries(boards.families)) {
   for (const m of fam.sleepModes) if (!modeIds.has(m)) fail(`family ${id}: unknown sleep mode ${m}`);
   if (![1, 2].includes(fam.i2cBuses)) fail(`family ${id}: i2cBuses must be 1 or 2`);
   if (fam.configOffset != null && (fam.configOffset % 4096 !== 0)) fail(`family ${id}: configOffset must be sector aligned`);
+  // The web app writes the config block where the catalog says, the firmware reads it where
+  // main.cpp says. Both must be the same address.
+  if (id === 'esp8266') {
+    const main = readFileSync(join(root, 'src/main.cpp'), 'utf8');
+    const fw = Number(/kConfigOffset8266\s*=\s*(0x[0-9A-Fa-f]+)/.exec(main)?.[1]);
+    if (fam.configOffset !== fw) fail(`family esp8266: configOffset ${fam.configOffset} (0x${fam.configOffset?.toString(16)}) differs from kConfigOffset8266 0x${fw.toString(16)} in src/main.cpp`);
+  }
 }
 for (const b of boards.boards) {
   if (boardIds.has(b.id)) fail(`board ${b.id}: duplicate`);

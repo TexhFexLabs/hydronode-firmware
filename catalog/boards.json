@@ -469,7 +469,7 @@
         "LIGHT_SLEEP",
         "DEEP_SLEEP"
       ],
-      "configOffset": 3244032,
+      "configOffset": 4161536,
       "maxDevices": 8,
       "notes": [
         "Deep sleep needs a wire from GPIO16 (D0) to RST, otherwise the board never wakes up. GPIO16 is kept free for it.",
