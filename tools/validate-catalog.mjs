@@ -85,6 +85,14 @@ for (const [id, fam] of Object.entries(boards.families)) {
   for (const pin of fam.usb) if (fam.gpios.includes(pin)) fail(`family ${id}: USB pin ${pin} must not be offered as gpio`);
   for (const m of fam.sleepModes) if (!modeIds.has(m)) fail(`family ${id}: unknown sleep mode ${m}`);
   if (![1, 2].includes(fam.i2cBuses)) fail(`family ${id}: i2cBuses must be 1 or 2`);
+  // The parser's channel pool (kMaxTotalChannels in src/config/Config.h) must match.
+  {
+    const header = readFileSync(join(root, 'src/config/Config.h'), 'utf8');
+    const want = Number(new RegExp(id === 'esp8266'
+      ? 'ESP8266\\)\\s*constexpr uint8_t kMaxTotalChannels = (\\d+)'
+      : '#else\\s*constexpr uint8_t kMaxTotalChannels = (\\d+)').exec(header)?.[1]);
+    if (fam.maxChannels !== want) fail(`family ${id}: maxChannels ${fam.maxChannels} differs from kMaxTotalChannels ${want} in src/config/Config.h`);
+  }
   if (fam.configOffset != null && (fam.configOffset % 4096 !== 0)) fail(`family ${id}: configOffset must be sector aligned`);
   // The web app writes the config block where the catalog says, the firmware reads it where
   // main.cpp says. Both must be the same address.

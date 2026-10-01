@@ -28,7 +28,14 @@ constexpr uint8_t kMaxDevices = 8;  // ~80 KB RAM, TLS needs the heap
 #else
 constexpr uint8_t kMaxDevices = 16;
 #endif
-constexpr uint8_t kMaxChannels = 8;
+constexpr uint8_t kMaxChannels = 8;  // per device (8 probes on one 1-Wire pin)
+// All channels share one pool: a fixed 8 per device cost 5.8 KB on the ESP8266, where every
+// kilobyte is missing from the TLS handshake. Mirrors `maxChannels` in catalog/boards.json.
+#if defined(ESP8266)
+constexpr uint8_t kMaxTotalChannels = 16;
+#else
+constexpr uint8_t kMaxTotalChannels = 48;
+#endif
 constexpr uint8_t kMaxOptions = 4;
 constexpr uint8_t kMaxI2cBuses = 2;
 constexpr uint32_t kMinIntervalSeconds = 10;
@@ -66,7 +73,7 @@ struct DeviceConfig {
     int8_t pin;       // data/analog pin, -1 for I2C devices
     int8_t bus;       // I2C bus index, -1 for non-I2C devices
     uint8_t address;  // I2C address, 0 when unused
-    ChannelConfig channels[kMaxChannels];
+    ChannelConfig* channels;  // slice of Config::channelPool
     uint8_t channelCount;
     OptionValue options[kMaxOptions];
     uint8_t optionCount;
@@ -104,6 +111,8 @@ struct Config {
     uint8_t i2cCount;
     DeviceConfig devices[kMaxDevices];
     uint8_t deviceCount;
+    ChannelConfig channelPool[kMaxTotalChannels];
+    uint8_t channelPoolUsed;
 };
 
 struct ParseResult {

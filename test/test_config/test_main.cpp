@@ -152,6 +152,33 @@ void test_static_ip() {
     TEST_ASSERT_EQUAL(ConfigError::BadValue, parse(replace(json, "192.168.1.50", "192.168.1.500"), cfg));
 }
 
+// Channels share one pool; each device gets its own slice, and the pool has a hard limit.
+void test_channels_share_one_pool() {
+    std::string devs;
+    for (int i = 0; i < 6; i++) {
+        if (i) devs += ",";
+        devs += R"({"drv":"bme280","bus":0,"addr":118,"ch":[{"q":"t","type":"T)" + std::to_string(i) +
+                R"("},{"q":"rh","type":"H)" + std::to_string(i) + R"("},{"q":"p","type":"P)" + std::to_string(i) + R"("}]})";
+    }
+    std::string json = replace(kMinimal, R"({"drv":"dht","pin":4,"ch":[{"q":"t","type":"TEMPERATURE"}]})", devs);
+    json = replace(json, R"("interval":60,)", R"("interval":60,"i2c":[{"sda":21,"scl":22}],)");
+    TEST_ASSERT_EQUAL(ConfigError::Ok, parse(json, cfg));
+    TEST_ASSERT_EQUAL(18, cfg.channelPoolUsed);
+    TEST_ASSERT_EQUAL_STRING("H0", cfg.devices[0].channels[1].type);
+    TEST_ASSERT_EQUAL_STRING("P5", cfg.devices[5].channels[2].type);
+    TEST_ASSERT_TRUE(cfg.devices[1].channels == cfg.devices[0].channels + 3);
+
+    std::string many = devs;
+    for (int i = 6; i < 16; i++) {
+        many += R"(,{"drv":"bme280","bus":0,"addr":118,"ch":[{"q":"t","type":"T)" + std::to_string(i) +
+                R"("},{"q":"rh","type":"H)" + std::to_string(i) + R"("},{"q":"p","type":"P)" + std::to_string(i) + R"("}]})";
+    }
+    std::string tooMany = replace(json, devs, many);  // 48 channels fit exactly on the ESP32 build
+    TEST_ASSERT_EQUAL(ConfigError::Ok, parse(tooMany, cfg));
+    tooMany = replace(tooMany, R"("type":"P15"}]})", R"("type":"P15"},{"q":"x","type":"EXTRA"}]})");
+    TEST_ASSERT_EQUAL(ConfigError::BadValue, parse(tooMany, cfg));
+}
+
 void test_type_rule_matches_backend() {
     TEST_ASSERT_TRUE(isValidType("TEMPERATURE2"));
     TEST_ASSERT_TRUE(isValidType("SOIL_MOISTURE"));
@@ -172,6 +199,7 @@ int main() {
     RUN_TEST(test_rejects_invalid_values);
     RUN_TEST(test_hibernate_disables_fast_reconnect);
     RUN_TEST(test_static_ip);
+    RUN_TEST(test_channels_share_one_pool);
     RUN_TEST(test_type_rule_matches_backend);
     return UNITY_END();
 }

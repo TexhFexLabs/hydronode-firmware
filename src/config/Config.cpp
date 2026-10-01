@@ -207,6 +207,9 @@ ParseResult parsePayload(const char* json, size_t len, Config& out) {
 
         JsonArrayConst channels = dev["ch"];
         if (channels.size() == 0 || channels.size() > kMaxChannels) return fail(ConfigError::BadValue, "devices.ch");
+        if (out.channelPoolUsed + channels.size() > kMaxTotalChannels) return fail(ConfigError::BadValue, "devices.ch.total");
+        d.channels = &out.channelPool[out.channelPoolUsed];
+        out.channelPoolUsed += channels.size();
         for (JsonObjectConst ch : channels) {
             ChannelConfig& c = d.channels[d.channelCount++];
             if (!copyString(ch["q"], c.q, sizeof(c.q))) return fail(ConfigError::MissingField, "devices.ch.q");

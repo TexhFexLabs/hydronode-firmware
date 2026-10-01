@@ -79,6 +79,7 @@
         39
       ],
       "i2cBuses": 2,
+      "maxChannels": 48,
       "sleepModes": [
         "ALWAYS_ON",
         "MODEM_SLEEP",
@@ -182,6 +183,7 @@
         21
       ],
       "i2cBuses": 2,
+      "maxChannels": 48,
       "sleepModes": [
         "ALWAYS_ON",
         "MODEM_SLEEP",
@@ -281,6 +283,7 @@
         21
       ],
       "i2cBuses": 2,
+      "maxChannels": 48,
       "sleepModes": [
         "ALWAYS_ON",
         "MODEM_SLEEP",
@@ -342,6 +345,7 @@
         5
       ],
       "i2cBuses": 1,
+      "maxChannels": 48,
       "sleepModes": [
         "ALWAYS_ON",
         "MODEM_SLEEP",
@@ -417,6 +421,7 @@
         7
       ],
       "i2cBuses": 1,
+      "maxChannels": 48,
       "sleepModes": [
         "ALWAYS_ON",
         "MODEM_SLEEP",
@@ -463,6 +468,7 @@
       "usb": [],
       "wakePins": [],
       "i2cBuses": 1,
+      "maxChannels": 16,
       "sleepModes": [
         "ALWAYS_ON",
         "MODEM_SLEEP",
