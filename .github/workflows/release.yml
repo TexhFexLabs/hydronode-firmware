@@ -26,10 +26,6 @@ jobs:
         run: |
           version=$(sed -n 's/^version = //p' platformio.ini)
           test "v$version" = "$GITHUB_REF_NAME"
-      # HydroNode-Library 1.4.0 (ESP8266 support) is not in the registry yet; the esp8266 env
-      # links the sibling checkout. Remove once platformio.ini pins 1.4.0 from the registry.
-      - name: HydroNode-Library checkout
-        run: git clone --depth 1 https://github.com/TexhFexLabs/HydroNode-Library.git ../hydronode-library
       - name: Catalog
         run: node tools/validate-catalog.mjs --out dist
       - name: Host tests

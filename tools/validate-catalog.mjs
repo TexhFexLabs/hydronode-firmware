@@ -44,7 +44,8 @@ const iniDeps = new Map(depLines.map((l) => {
   const at = l.lastIndexOf('@');
   return [l.slice(0, at), l.slice(at + 1)];
 }));
-// [env:esp8266] may differ only in where HydroNode-Library comes from (until 1.4.0 is released).
+// [env:esp8266] may differ only in HydroNode-Library: ESP8266 support starts with 1.4.0, which
+// is fetched from its GitHub release tag (the PlatformIO registry still lists 1.3.0).
 const esp8266Block = ini.split(/^\[env:esp8266\]\s*$/m)[1]?.split(/^\[/m)[0] ?? '';
 if (esp8266Block) {
   const lines = [];
@@ -53,7 +54,10 @@ if (esp8266Block) {
     lines.push(line.trim());
   }
   for (const dep of lines) {
-    if (dep.startsWith('symlink://')) continue;
+    if (dep.startsWith('https://github.com/TexhFexLabs/HydroNode-Library.git#')) {
+      if (!/#\d+\.\d+\.\d+$/.test(dep)) fail(`[env:esp8266]: ${dep} must pin a release tag`);
+      continue;
+    }
     if (!depLines.includes(dep)) fail(`[env:esp8266]: ${dep} differs from [esp]`);
   }
   for (const dep of depLines) {

@@ -22,7 +22,7 @@ const arg = (name) => {
   return i > 0 ? process.argv[i + 1] : undefined;
 };
 const envs = (arg('--env') ?? 'esp32,esp32s2,esp32s3,esp32c3,esp32c6,esp8266').split(',');
-// Our own MIT library may come from the sibling checkout in a newer, unreleased version.
+// Our own MIT library: the ESP8266 build uses a newer release (1.4.0) than the catalog's ESP32 pin.
 const OWN = new Set(['HydroNode-Library']);
 const out = arg('--out');
 
