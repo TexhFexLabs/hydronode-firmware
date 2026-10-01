@@ -30,7 +30,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PIO_HOME = Path(os.environ.get("PLATFORMIO_CORE_DIR", Path.home() / ".platformio"))
-ESPTOOL_DIR = PIO_HOME / "packages" / "tool-esptoolpy"
+# esptool comes from pip (pinned in release.yml), not from ~/.platformio: the ESP8266 platform
+# installs an old tool-esptoolpy under the same name, which has no merge-bin.
+ESPTOOL_MAJOR = "5."
 BOOT_APP0 = PIO_HOME / "packages" / "framework-arduinoespressif32" / "tools" / "partitions" / "boot_app0.bin"
 
 PARTITION_TABLE_OFFSET = 0x8000
@@ -51,6 +53,10 @@ def partitions() -> dict:
 
 
 def main() -> int:
+    lines = subprocess.run([sys.executable, "-m", "esptool", "version"], capture_output=True, text=True).stdout.split()
+    found = lines[-1].lstrip("v") if lines else "none"
+    if not found.startswith(ESPTOOL_MAJOR):
+        sys.exit(f"esptool {ESPTOOL_MAJOR}x needed for merge-bin, found {found} (pip install esptool==5.4.0)")
     ini = (ROOT / "platformio.ini").read_text()
     version = re.search(r"^version\s*=\s*(\S+)", ini, re.M).group(1)
     catalog = json.loads((ROOT / "dist" / "catalog.json").read_text())
@@ -101,7 +107,6 @@ def main() -> int:
             ],
             check=True,
             stdout=subprocess.DEVNULL,
-            env={**os.environ, "PYTHONPATH": str(ESPTOOL_DIR)},
         )
         if target.stat().st_size > parts["hncfg"]["offset"]:
             sys.exit(f"{family}: merged image overlaps the config partition")

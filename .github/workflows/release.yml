@@ -20,8 +20,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-      - name: Install PlatformIO
-        run: pip install platformio==6.2.0
+      - name: Install PlatformIO and esptool
+        run: pip install platformio==6.2.0 esptool==5.4.0
       - name: Check tag matches firmware version
         run: |
           version=$(sed -n 's/^version = //p' platformio.ini)
