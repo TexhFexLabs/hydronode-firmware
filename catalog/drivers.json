@@ -60,6 +60,82 @@
     "w": {
       "name": "Power",
       "unit": "W"
+    },
+    "pm1": {
+      "name": "PM1.0",
+      "unit": "µg/m³"
+    },
+    "pm25": {
+      "name": "PM2.5",
+      "unit": "µg/m³"
+    },
+    "pm4": {
+      "name": "PM4.0",
+      "unit": "µg/m³"
+    },
+    "pm10": {
+      "name": "PM10",
+      "unit": "µg/m³"
+    },
+    "uv": {
+      "name": "UV index",
+      "unit": ""
+    },
+    "a0": {
+      "name": "Input A0",
+      "unit": "V"
+    },
+    "a1": {
+      "name": "Input A1",
+      "unit": "V"
+    },
+    "a2": {
+      "name": "Input A2",
+      "unit": "V"
+    },
+    "a3": {
+      "name": "Input A3",
+      "unit": "V"
+    },
+    "dist": {
+      "name": "Distance",
+      "unit": "cm"
+    },
+    "lvl": {
+      "name": "Fill level",
+      "unit": "%"
+    },
+    "flow": {
+      "name": "Flow rate",
+      "unit": "L/min"
+    },
+    "vol": {
+      "name": "Volume since last value",
+      "unit": "L"
+    },
+    "rain": {
+      "name": "Rain since last value",
+      "unit": "mm"
+    },
+    "ph": {
+      "name": "pH",
+      "unit": ""
+    },
+    "tds": {
+      "name": "TDS",
+      "unit": "ppm"
+    },
+    "ec": {
+      "name": "EC",
+      "unit": "mS/cm"
+    },
+    "rssi": {
+      "name": "WiFi signal",
+      "unit": "dBm"
+    },
+    "btn": {
+      "name": "Press",
+      "unit": ""
     }
   },
   "drivers": [
@@ -99,7 +175,8 @@
         "OneWireNg",
         "DallasTemperature"
       ],
-      "esphome": "dallas_temp"
+      "esphome": "dallas_temp",
+      "readMs": 800
     },
     {
       "id": "dht",
@@ -152,7 +229,8 @@
         "DHT sensor library",
         "Adafruit Unified Sensor"
       ],
-      "esphome": "dht"
+      "esphome": "dht",
+      "readMs": 300
     },
     {
       "id": "sht4x",
@@ -190,7 +268,8 @@
         "Sensirion I2C SHT4x",
         "Sensirion Core"
       ],
-      "esphome": "sht4x"
+      "esphome": "sht4x",
+      "readMs": 20
     },
     {
       "id": "sht3x",
@@ -227,7 +306,8 @@
         "Adafruit SHT31 Library",
         "Adafruit BusIO"
       ],
-      "esphome": "sht3xd"
+      "esphome": "sht3xd",
+      "readMs": 20
     },
     {
       "id": "aht",
@@ -264,12 +344,13 @@
         "Adafruit Unified Sensor",
         "Adafruit BusIO"
       ],
-      "esphome": "aht10"
+      "esphome": "aht10",
+      "readMs": 100
     },
     {
       "id": "htu21d",
-      "name": "HTU21D / SHT21",
-      "summary": "Temperature and humidity (I²C)",
+      "name": "HTU21D / SHT21 / Si7021",
+      "summary": "Temperature and humidity (I²C), the Si7021 speaks the same protocol",
       "category": "climate",
       "bus": "i2c",
       "addresses": [
@@ -300,7 +381,8 @@
         "Adafruit HTU21DF Library",
         "Adafruit BusIO"
       ],
-      "esphome": "htu21d"
+      "esphome": "htu21d",
+      "readMs": 110
     },
     {
       "id": "bme280",
@@ -345,7 +427,8 @@
         "Adafruit Unified Sensor",
         "Adafruit BusIO"
       ],
-      "esphome": "bme280_i2c"
+      "esphome": "bme280_i2c",
+      "readMs": 15
     },
     {
       "id": "bmp280",
@@ -383,7 +466,8 @@
         "Adafruit Unified Sensor",
         "Adafruit BusIO"
       ],
-      "esphome": "bmp280_i2c"
+      "esphome": "bmp280_i2c",
+      "readMs": 15
     },
     {
       "id": "bh1750",
@@ -412,7 +496,8 @@
       "libs": [
         "BH1750"
       ],
-      "esphome": "bh1750"
+      "esphome": "bh1750",
+      "readMs": 200
     },
     {
       "id": "soil",
@@ -460,7 +545,8 @@
       "sleepSafe": true,
       "wiring": "VCC to 3.3 V, GND, AOUT to an ADC pin. Calibrate once in air and once in a glass of water.",
       "libs": [],
-      "esphome": "adc"
+      "esphome": "adc",
+      "readMs": 5
     },
     {
       "id": "analog",
@@ -508,7 +594,8 @@
       "sleepSafe": true,
       "wiring": "Signal to an ADC pin, at most 3.3 V at the pin.",
       "libs": [],
-      "esphome": "adc"
+      "esphome": "adc",
+      "readMs": 5
     },
     {
       "id": "battery",
@@ -548,7 +635,8 @@
       "sleepSafe": true,
       "wiring": "Battery + to a 100 kΩ resistor, that to a second 100 kΩ resistor, that to GND. The point between the two resistors goes to the ADC pin, which then sees half the battery voltage (4.2 V full LiPo reads 2.1 V). The divider factor 2 turns it back into the battery voltage.",
       "libs": [],
-      "esphome": "adc"
+      "esphome": "adc",
+      "readMs": 5
     },
     {
       "id": "bme680",
@@ -600,7 +688,8 @@
         "Adafruit Unified Sensor",
         "Adafruit BusIO"
       ],
-      "esphome": "bme680"
+      "esphome": "bme680",
+      "readMs": 200
     },
     {
       "id": "sgp30",
@@ -637,7 +726,9 @@
         "Adafruit SGP30 Sensor",
         "Adafruit BusIO"
       ],
-      "esphome": "sgp30"
+      "esphome": "sgp30",
+      "readMs": 0,
+      "requiresAwake": "samples every second"
     },
     {
       "id": "sgp40",
@@ -667,7 +758,9 @@
         "Adafruit SGP40 Sensor",
         "Adafruit BusIO"
       ],
-      "esphome": "sgp4x"
+      "esphome": "sgp4x",
+      "readMs": 0,
+      "requiresAwake": "samples every second"
     },
     {
       "id": "sgp41",
@@ -705,7 +798,9 @@
         "Sensirion Gas Index Algorithm",
         "Sensirion Core"
       ],
-      "esphome": "sgp4x"
+      "esphome": "sgp4x",
+      "readMs": 0,
+      "requiresAwake": "samples every second"
     },
     {
       "id": "scd4x",
@@ -759,7 +854,8 @@
         "Sensirion I2C SCD4x",
         "Sensirion Core"
       ],
-      "esphome": "scd4x"
+      "esphome": "scd4x",
+      "readMs": 5000
     },
     {
       "id": "veml7700",
@@ -788,7 +884,8 @@
         "Adafruit VEML7700 Library",
         "Adafruit BusIO"
       ],
-      "esphome": "veml7700"
+      "esphome": "veml7700",
+      "readMs": 800
     },
     {
       "id": "ina219",
@@ -851,7 +948,1342 @@
         "Adafruit INA219",
         "Adafruit BusIO"
       ],
-      "esphome": "ina219"
+      "esphome": "ina219",
+      "readMs": 5
+    },
+    {
+      "id": "ms8607",
+      "name": "MS8607",
+      "summary": "Temperature, humidity and pressure in one (I²C)",
+      "category": "climate",
+      "bus": "i2c",
+      "addresses": [
+        118
+      ],
+      "defaultAddress": 118,
+      "channels": [
+        {
+          "q": "t",
+          "defaultType": "TEMPERATURE",
+          "typeOptions": [
+            "TEMPERATURE"
+          ]
+        },
+        {
+          "q": "rh",
+          "defaultType": "HUMIDITY",
+          "typeOptions": [
+            "HUMIDITY"
+          ]
+        },
+        {
+          "q": "p",
+          "defaultType": "PRESSURE",
+          "typeOptions": [
+            "PRESSURE"
+          ]
+        }
+      ],
+      "options": [],
+      "warmupMs": 15,
+      "readMs": 30,
+      "sleepSafe": true,
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. The chip uses two addresses at once (0x76 and 0x40); no other sensor on the bus may use them.",
+      "libs": [
+        "Adafruit MS8607",
+        "Adafruit Unified Sensor",
+        "Adafruit BusIO"
+      ],
+      "esphome": "ms8607"
+    },
+    {
+      "id": "bmp3xx",
+      "name": "BMP388 / BMP390",
+      "summary": "Precise pressure and temperature (I²C)",
+      "category": "climate",
+      "bus": "i2c",
+      "addresses": [
+        119,
+        118
+      ],
+      "defaultAddress": 119,
+      "channels": [
+        {
+          "q": "t",
+          "defaultType": "TEMPERATURE",
+          "typeOptions": [
+            "TEMPERATURE"
+          ]
+        },
+        {
+          "q": "p",
+          "defaultType": "PRESSURE",
+          "typeOptions": [
+            "PRESSURE"
+          ]
+        }
+      ],
+      "options": [],
+      "warmupMs": 10,
+      "readMs": 20,
+      "sleepSafe": true,
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. SDO to GND switches the address to 0x76.",
+      "libs": [
+        "Adafruit BMP3XX Library",
+        "Adafruit Unified Sensor",
+        "Adafruit BusIO"
+      ],
+      "esphome": "bmp3xx_i2c"
+    },
+    {
+      "id": "dps310",
+      "name": "DPS310",
+      "summary": "Precise pressure and temperature (I²C)",
+      "category": "climate",
+      "bus": "i2c",
+      "addresses": [
+        119,
+        118
+      ],
+      "defaultAddress": 119,
+      "channels": [
+        {
+          "q": "t",
+          "defaultType": "TEMPERATURE",
+          "typeOptions": [
+            "TEMPERATURE"
+          ]
+        },
+        {
+          "q": "p",
+          "defaultType": "PRESSURE",
+          "typeOptions": [
+            "PRESSURE"
+          ]
+        }
+      ],
+      "options": [],
+      "warmupMs": 0,
+      "readMs": 1000,
+      "sleepSafe": true,
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. SDO to GND switches the address to 0x76.",
+      "libs": [
+        "Adafruit DPS310",
+        "Adafruit Unified Sensor",
+        "Adafruit BusIO"
+      ],
+      "esphome": ""
+    },
+    {
+      "id": "lps22",
+      "name": "LPS22HB / LPS22",
+      "summary": "Pressure and temperature (I²C)",
+      "category": "climate",
+      "bus": "i2c",
+      "addresses": [
+        93,
+        92
+      ],
+      "defaultAddress": 93,
+      "channels": [
+        {
+          "q": "t",
+          "defaultType": "TEMPERATURE",
+          "typeOptions": [
+            "TEMPERATURE"
+          ]
+        },
+        {
+          "q": "p",
+          "defaultType": "PRESSURE",
+          "typeOptions": [
+            "PRESSURE"
+          ]
+        }
+      ],
+      "options": [],
+      "warmupMs": 10,
+      "readMs": 50,
+      "sleepSafe": true,
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. SDO to GND switches the address to 0x5C.",
+      "libs": [
+        "Adafruit LPS2X",
+        "Adafruit Unified Sensor",
+        "Adafruit BusIO"
+      ],
+      "esphome": ""
+    },
+    {
+      "id": "shtc3",
+      "name": "SHTC3",
+      "summary": "Small, low-power temperature and humidity (I²C)",
+      "category": "climate",
+      "bus": "i2c",
+      "addresses": [
+        112
+      ],
+      "defaultAddress": 112,
+      "channels": [
+        {
+          "q": "t",
+          "defaultType": "TEMPERATURE",
+          "typeOptions": [
+            "TEMPERATURE"
+          ]
+        },
+        {
+          "q": "rh",
+          "defaultType": "HUMIDITY",
+          "typeOptions": [
+            "HUMIDITY"
+          ]
+        }
+      ],
+      "options": [],
+      "warmupMs": 10,
+      "readMs": 20,
+      "sleepSafe": true,
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus.",
+      "libs": [
+        "Adafruit SHTC3 Library",
+        "Adafruit Unified Sensor",
+        "Adafruit BusIO"
+      ],
+      "esphome": "shtcx"
+    },
+    {
+      "id": "mcp9808",
+      "name": "MCP9808",
+      "summary": "Precise temperature, ±0.25 °C (I²C)",
+      "category": "temperature",
+      "bus": "i2c",
+      "addresses": [
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31
+      ],
+      "defaultAddress": 24,
+      "channels": [
+        {
+          "q": "t",
+          "defaultType": "TEMPERATURE",
+          "typeOptions": [
+            "TEMPERATURE",
+            "WATER_TEMPERATURE",
+            "SOIL_TEMPERATURE"
+          ]
+        }
+      ],
+      "options": [],
+      "warmupMs": 0,
+      "readMs": 260,
+      "sleepSafe": true,
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. A0, A1, A2 to 3.3 V select addresses 0x19 to 0x1F.",
+      "libs": [
+        "Adafruit MCP9808 Library",
+        "Adafruit BusIO"
+      ],
+      "esphome": "mcp9808"
+    },
+    {
+      "id": "tmp117",
+      "name": "TMP117",
+      "summary": "High-accuracy temperature, ±0.1 °C (I²C)",
+      "category": "temperature",
+      "bus": "i2c",
+      "addresses": [
+        72,
+        73,
+        74,
+        75
+      ],
+      "defaultAddress": 72,
+      "channels": [
+        {
+          "q": "t",
+          "defaultType": "TEMPERATURE",
+          "typeOptions": [
+            "TEMPERATURE",
+            "WATER_TEMPERATURE",
+            "SOIL_TEMPERATURE"
+          ]
+        }
+      ],
+      "options": [],
+      "warmupMs": 1100,
+      "readMs": 5,
+      "sleepSafe": true,
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. ADD0 to GND 0x48, to 3.3 V 0x49, to SDA 0x4A, to SCL 0x4B.",
+      "libs": [
+        "Adafruit TMP117",
+        "Adafruit Unified Sensor",
+        "Adafruit BusIO"
+      ],
+      "esphome": "tmp117"
+    },
+    {
+      "id": "tsl2591",
+      "name": "TSL2591",
+      "summary": "Light from starlight to sunlight (I²C)",
+      "category": "light",
+      "bus": "i2c",
+      "addresses": [
+        41
+      ],
+      "defaultAddress": 41,
+      "channels": [
+        {
+          "q": "lux",
+          "defaultType": "LIGHT",
+          "typeOptions": [
+            "LIGHT"
+          ]
+        }
+      ],
+      "options": [],
+      "warmupMs": 0,
+      "readMs": 350,
+      "sleepSafe": true,
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus.",
+      "libs": [
+        "Adafruit TSL2591 Library",
+        "Adafruit Unified Sensor",
+        "Adafruit BusIO"
+      ],
+      "esphome": "tsl2591"
+    },
+    {
+      "id": "ltr390",
+      "name": "LTR390",
+      "summary": "UV index and light (I²C)",
+      "category": "light",
+      "bus": "i2c",
+      "addresses": [
+        83
+      ],
+      "defaultAddress": 83,
+      "channels": [
+        {
+          "q": "uv",
+          "defaultType": "UV_INDEX",
+          "typeOptions": [
+            "UV_INDEX"
+          ]
+        },
+        {
+          "q": "lux",
+          "defaultType": "LIGHT",
+          "typeOptions": [
+            "LIGHT"
+          ]
+        }
+      ],
+      "options": [],
+      "warmupMs": 0,
+      "readMs": 250,
+      "sleepSafe": true,
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. Under glass or plastic the UV index reads far too low: the sensor needs open sky.",
+      "libs": [
+        "Adafruit LTR390 Library",
+        "Adafruit BusIO"
+      ],
+      "esphome": "ltr390"
+    },
+    {
+      "id": "scd30",
+      "name": "SCD30",
+      "summary": "True CO₂ plus temperature and humidity (I²C)",
+      "category": "air",
+      "bus": "i2c",
+      "addresses": [
+        97
+      ],
+      "defaultAddress": 97,
+      "channels": [
+        {
+          "q": "co2",
+          "defaultType": "CO2",
+          "typeOptions": [
+            "CO2"
+          ]
+        },
+        {
+          "q": "t",
+          "defaultType": "TEMPERATURE",
+          "typeOptions": [
+            "TEMPERATURE"
+          ]
+        },
+        {
+          "q": "rh",
+          "defaultType": "HUMIDITY",
+          "typeOptions": [
+            "HUMIDITY"
+          ]
+        }
+      ],
+      "options": [],
+      "warmupMs": 2000,
+      "readMs": 2000,
+      "sleepSafe": true,
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. Measures every 2 s on its own and calibrates against fresh air, so keep it powered (no sensor power pin). Draws about 19 mA.",
+      "libs": [
+        "Adafruit SCD30",
+        "Adafruit Unified Sensor",
+        "Adafruit BusIO"
+      ],
+      "esphome": "scd30"
+    },
+    {
+      "id": "pmsa003i",
+      "name": "PMSA003I",
+      "summary": "Fine dust PM1, PM2.5 and PM10 (I²C)",
+      "category": "air",
+      "bus": "i2c",
+      "addresses": [
+        18
+      ],
+      "defaultAddress": 18,
+      "channels": [
+        {
+          "q": "pm1",
+          "defaultType": "PM1",
+          "typeOptions": [
+            "PM1"
+          ]
+        },
+        {
+          "q": "pm25",
+          "defaultType": "PM25",
+          "typeOptions": [
+            "PM25"
+          ]
+        },
+        {
+          "q": "pm10",
+          "defaultType": "PM10",
+          "typeOptions": [
+            "PM10"
+          ]
+        }
+      ],
+      "options": [],
+      "warmupMs": 30000,
+      "readMs": 50,
+      "sleepSafe": true,
+      "wiring": "5 V to VIN, GND, SDA and SCL to the I²C bus. The fan needs 30 s after power-up for stable values.",
+      "libs": [
+        "Adafruit PM25 AQI Sensor",
+        "Adafruit BusIO"
+      ],
+      "esphome": "pmsa003i"
+    },
+    {
+      "id": "pms5003",
+      "name": "PMS5003 / PMS7003",
+      "summary": "Fine dust PM1, PM2.5 and PM10 (serial)",
+      "category": "air",
+      "bus": "gpio",
+      "pins": [
+        {
+          "key": "pin",
+          "label": "Sensor TX",
+          "caps": [
+            "digital"
+          ]
+        }
+      ],
+      "channels": [
+        {
+          "q": "pm1",
+          "defaultType": "PM1",
+          "typeOptions": [
+            "PM1"
+          ]
+        },
+        {
+          "q": "pm25",
+          "defaultType": "PM25",
+          "typeOptions": [
+            "PM25"
+          ]
+        },
+        {
+          "q": "pm10",
+          "defaultType": "PM10",
+          "typeOptions": [
+            "PM10"
+          ]
+        }
+      ],
+      "options": [],
+      "warmupMs": 30000,
+      "readMs": 1000,
+      "sleepSafe": true,
+      "wiring": "VCC to 5 V, GND to GND, the sensor's TX to the pin. Its RX stays unconnected. The fan needs 30 s after power-up for stable values.",
+      "libs": [
+        "Adafruit PM25 AQI Sensor",
+        "Adafruit BusIO"
+      ],
+      "esphome": "pmsx003"
+    },
+    {
+      "id": "sen5x",
+      "name": "SEN54 / SEN55",
+      "summary": "Fine dust, temperature, humidity, VOC and NOx (I²C)",
+      "category": "air",
+      "bus": "i2c",
+      "addresses": [
+        105
+      ],
+      "defaultAddress": 105,
+      "channels": [
+        {
+          "q": "pm1",
+          "defaultType": "PM1",
+          "typeOptions": [
+            "PM1"
+          ]
+        },
+        {
+          "q": "pm25",
+          "defaultType": "PM25",
+          "typeOptions": [
+            "PM25"
+          ]
+        },
+        {
+          "q": "pm4",
+          "defaultType": "PM4",
+          "typeOptions": [
+            "PM4"
+          ]
+        },
+        {
+          "q": "pm10",
+          "defaultType": "PM10",
+          "typeOptions": [
+            "PM10"
+          ]
+        },
+        {
+          "q": "t",
+          "defaultType": "TEMPERATURE",
+          "typeOptions": [
+            "TEMPERATURE"
+          ]
+        },
+        {
+          "q": "rh",
+          "defaultType": "HUMIDITY",
+          "typeOptions": [
+            "HUMIDITY"
+          ]
+        },
+        {
+          "q": "voc",
+          "defaultType": "VOC_INDEX",
+          "typeOptions": [
+            "VOC_INDEX"
+          ]
+        },
+        {
+          "q": "nox",
+          "defaultType": "NOX_INDEX",
+          "typeOptions": [
+            "NOX_INDEX"
+          ]
+        }
+      ],
+      "options": [],
+      "warmupMs": 1100,
+      "readMs": 1000,
+      "sleepSafe": true,
+      "wiring": "5 V to VDD, GND, SDA and SCL to the I²C bus, SEL to GND. The SEN54 has no NOx: remove that value. VOC and NOx learn the room over hours, so keep it powered.",
+      "libs": [
+        "Sensirion I2C SEN5X",
+        "Sensirion Core"
+      ],
+      "esphome": "sen5x"
+    },
+    {
+      "id": "ina226",
+      "name": "INA226",
+      "summary": "Voltage up to 36 V, current and power (I²C)",
+      "category": "power",
+      "bus": "i2c",
+      "addresses": [
+        64,
+        65,
+        68,
+        69
+      ],
+      "defaultAddress": 64,
+      "channels": [
+        {
+          "q": "v",
+          "defaultType": "VOLTAGE",
+          "typeOptions": [
+            "VOLTAGE",
+            "BATTERY_VOLTAGE",
+            "SOLAR_VOLTAGE"
+          ]
+        },
+        {
+          "q": "i",
+          "defaultType": "CURRENT",
+          "typeOptions": [
+            "CURRENT",
+            "BATTERY_CURRENT",
+            "SOLAR_CURRENT"
+          ]
+        },
+        {
+          "q": "w",
+          "defaultType": "POWER",
+          "typeOptions": [
+            "POWER",
+            "SOLAR_POWER"
+          ]
+        }
+      ],
+      "options": [
+        {
+          "key": "shunt",
+          "label": "Shunt resistor (Ω)",
+          "type": "float",
+          "min": 0.001,
+          "max": 10,
+          "default": 0.1
+        },
+        {
+          "key": "maxA",
+          "label": "Largest current (A)",
+          "type": "float",
+          "min": 0.001,
+          "max": 100,
+          "default": 0.8
+        }
+      ],
+      "warmupMs": 5,
+      "readMs": 10,
+      "sleepSafe": true,
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. The load current flows through IN+ and IN−; VBUS to the voltage to measure. Most modules have a 0.1 Ω shunt (up to 0.8 A).",
+      "libs": [
+        "INA226"
+      ],
+      "esphome": "ina226"
+    },
+    {
+      "id": "ina260",
+      "name": "INA260",
+      "summary": "Voltage, current up to 15 A and power (I²C)",
+      "category": "power",
+      "bus": "i2c",
+      "addresses": [
+        64,
+        65,
+        68,
+        69
+      ],
+      "defaultAddress": 64,
+      "channels": [
+        {
+          "q": "v",
+          "defaultType": "VOLTAGE",
+          "typeOptions": [
+            "VOLTAGE",
+            "BATTERY_VOLTAGE",
+            "SOLAR_VOLTAGE"
+          ]
+        },
+        {
+          "q": "i",
+          "defaultType": "CURRENT",
+          "typeOptions": [
+            "CURRENT",
+            "BATTERY_CURRENT",
+            "SOLAR_CURRENT"
+          ]
+        },
+        {
+          "q": "w",
+          "defaultType": "POWER",
+          "typeOptions": [
+            "POWER",
+            "SOLAR_POWER"
+          ]
+        }
+      ],
+      "options": [],
+      "warmupMs": 5,
+      "readMs": 10,
+      "sleepSafe": true,
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. The load current flows through V+ and V−, the shunt is built in.",
+      "libs": [
+        "Adafruit INA260 Library",
+        "Adafruit BusIO"
+      ],
+      "esphome": "ina260"
+    },
+    {
+      "id": "ads1115",
+      "name": "ADS1115",
+      "summary": "Four more analog inputs, 16 bit (I²C)",
+      "category": "generic",
+      "bus": "i2c",
+      "addresses": [
+        72,
+        73,
+        74,
+        75
+      ],
+      "defaultAddress": 72,
+      "channels": [
+        {
+          "q": "a0",
+          "defaultType": "VOLTAGE_A0",
+          "typeOptions": [
+            "*"
+          ]
+        },
+        {
+          "q": "a1",
+          "defaultType": "VOLTAGE_A1",
+          "typeOptions": [
+            "*"
+          ]
+        },
+        {
+          "q": "a2",
+          "defaultType": "VOLTAGE_A2",
+          "typeOptions": [
+            "*"
+          ]
+        },
+        {
+          "q": "a3",
+          "defaultType": "VOLTAGE_A3",
+          "typeOptions": [
+            "*"
+          ]
+        }
+      ],
+      "options": [],
+      "warmupMs": 5,
+      "readMs": 40,
+      "sleepSafe": true,
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. Inputs A0 to A3 measure 0 to 3.3 V against GND, never more than the supply. Remove the inputs you do not use. ADDR to GND 0x48, VDD 0x49, SDA 0x4A, SCL 0x4B.",
+      "libs": [
+        "Adafruit ADS1X15",
+        "Adafruit BusIO"
+      ],
+      "esphome": "ads1115"
+    },
+    {
+      "id": "vl53l0x",
+      "name": "VL53L0X",
+      "summary": "Laser distance up to 2 m, fill level (I²C)",
+      "category": "water",
+      "bus": "i2c",
+      "addresses": [
+        41
+      ],
+      "defaultAddress": 41,
+      "channels": [
+        {
+          "q": "dist",
+          "defaultType": "DISTANCE",
+          "typeOptions": [
+            "DISTANCE"
+          ]
+        },
+        {
+          "q": "lvl",
+          "defaultType": "TANK_LEVEL",
+          "typeOptions": [
+            "TANK_LEVEL",
+            "WATER_LEVEL"
+          ]
+        }
+      ],
+      "options": [
+        {
+          "key": "empty",
+          "label": "Distance when the tank is empty (cm, 0 = no fill level)",
+          "type": "float",
+          "min": 0,
+          "max": 1000,
+          "default": 0
+        },
+        {
+          "key": "full",
+          "label": "Distance when the tank is full (cm)",
+          "type": "float",
+          "min": 0,
+          "max": 1000,
+          "default": 0
+        }
+      ],
+      "warmupMs": 5,
+      "readMs": 100,
+      "sleepSafe": true,
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. Mount it above the water, looking down. Set the empty and full distances to get the fill level, or remove that value.",
+      "libs": [
+        "VL53L0X"
+      ],
+      "esphome": "vl53l0x"
+    },
+    {
+      "id": "hcsr04",
+      "name": "HC-SR04 / JSN-SR04T",
+      "summary": "Ultrasonic distance up to 4 m, fill level",
+      "category": "water",
+      "bus": "gpio",
+      "pins": [
+        {
+          "key": "pin",
+          "label": "Trigger",
+          "caps": [
+            "digital"
+          ]
+        },
+        {
+          "key": "pin2",
+          "label": "Echo",
+          "caps": [
+            "digital"
+          ]
+        }
+      ],
+      "channels": [
+        {
+          "q": "dist",
+          "defaultType": "DISTANCE",
+          "typeOptions": [
+            "DISTANCE"
+          ]
+        },
+        {
+          "q": "lvl",
+          "defaultType": "TANK_LEVEL",
+          "typeOptions": [
+            "TANK_LEVEL",
+            "WATER_LEVEL"
+          ]
+        }
+      ],
+      "options": [
+        {
+          "key": "empty",
+          "label": "Distance when the tank is empty (cm, 0 = no fill level)",
+          "type": "float",
+          "min": 0,
+          "max": 1000,
+          "default": 0
+        },
+        {
+          "key": "full",
+          "label": "Distance when the tank is full (cm)",
+          "type": "float",
+          "min": 0,
+          "max": 1000,
+          "default": 0
+        }
+      ],
+      "warmupMs": 50,
+      "readMs": 400,
+      "sleepSafe": true,
+      "wiring": "VCC to 5 V, GND, TRIG to the trigger pin. ECHO carries 5 V: connect it through a divider (1 kΩ from ECHO to the echo pin, 2 kΩ from that pin to GND). The waterproof JSN-SR04T works the same and suits tanks.",
+      "libs": [],
+      "esphome": "ultrasonic"
+    },
+    {
+      "id": "flow",
+      "name": "Water flow meter (YF-S201)",
+      "summary": "Flow rate and volume from a pulse meter",
+      "category": "water",
+      "bus": "gpio",
+      "pins": [
+        {
+          "key": "pin",
+          "label": "Signal",
+          "caps": [
+            "digital"
+          ]
+        }
+      ],
+      "channels": [
+        {
+          "q": "flow",
+          "defaultType": "WATER_FLOW_RATE",
+          "typeOptions": [
+            "WATER_FLOW_RATE",
+            "FLOW_RATE"
+          ]
+        },
+        {
+          "q": "vol",
+          "defaultType": "WATER_VOLUME",
+          "typeOptions": [
+            "*"
+          ]
+        }
+      ],
+      "options": [
+        {
+          "key": "k",
+          "label": "Pulses per liter (YF-S201: 450)",
+          "type": "float",
+          "min": 1,
+          "max": 100000,
+          "default": 450
+        }
+      ],
+      "warmupMs": 0,
+      "readMs": 0,
+      "sleepSafe": false,
+      "continuous": true,
+      "requiresAwake": "counts every pulse",
+      "wiring": "Red to 5 V, black to GND, yellow (signal) to the pin. The signal is open collector, the internal pull-up keeps it at 3.3 V.",
+      "libs": [],
+      "esphome": "pulse_counter"
+    },
+    {
+      "id": "rain",
+      "name": "Rain gauge (tipping bucket)",
+      "summary": "Rain in mm from a reed switch",
+      "category": "water",
+      "bus": "gpio",
+      "pins": [
+        {
+          "key": "pin",
+          "label": "Reed switch",
+          "caps": [
+            "digital"
+          ]
+        }
+      ],
+      "channels": [
+        {
+          "q": "rain",
+          "defaultType": "RAINFALL",
+          "typeOptions": [
+            "RAINFALL"
+          ]
+        }
+      ],
+      "options": [
+        {
+          "key": "mm",
+          "label": "Rain per tip (mm)",
+          "type": "float",
+          "min": 0.01,
+          "max": 10,
+          "default": 0.2794
+        }
+      ],
+      "warmupMs": 0,
+      "readMs": 0,
+      "sleepSafe": false,
+      "continuous": true,
+      "requiresAwake": "counts every tip of the bucket",
+      "wiring": "One wire of the reed switch to the pin, the other to GND. The internal pull-up holds the pin high between tips.",
+      "libs": [],
+      "esphome": "pulse_counter"
+    },
+    {
+      "id": "ph",
+      "name": "pH probe (analog)",
+      "summary": "pH of water or nutrient solution",
+      "category": "water",
+      "bus": "analog",
+      "pins": [
+        {
+          "key": "pin",
+          "label": "Signal (Po)",
+          "caps": [
+            "adc"
+          ]
+        }
+      ],
+      "channels": [
+        {
+          "q": "ph",
+          "defaultType": "WATER_PH",
+          "typeOptions": [
+            "WATER_PH",
+            "SOIL_PH"
+          ]
+        }
+      ],
+      "options": [
+        {
+          "key": "v7",
+          "label": "Reading in pH 7 buffer (mV)",
+          "type": "float",
+          "min": 0,
+          "max": 5000,
+          "default": 1500
+        },
+        {
+          "key": "v4",
+          "label": "Reading in pH 4 buffer (mV)",
+          "type": "float",
+          "min": 0,
+          "max": 5000,
+          "default": 2030
+        }
+      ],
+      "warmupMs": 100,
+      "readMs": 5,
+      "sleepSafe": true,
+      "wiring": "Use a 3.3 V pH board (e.g. Gravity pH v2). Signal to an ADC pin, never more than 3.3 V. Calibrate: dip the probe into pH 7 and pH 4 buffer, note the millivolts the serial monitor shows, enter them here.",
+      "libs": [],
+      "esphome": "adc"
+    },
+    {
+      "id": "tds",
+      "name": "TDS / EC probe (analog)",
+      "summary": "Dissolved solids and conductivity",
+      "category": "water",
+      "bus": "analog",
+      "pins": [
+        {
+          "key": "pin",
+          "label": "Signal (A)",
+          "caps": [
+            "adc"
+          ]
+        }
+      ],
+      "channels": [
+        {
+          "q": "tds",
+          "defaultType": "WATER_TDS",
+          "typeOptions": [
+            "*"
+          ]
+        },
+        {
+          "q": "ec",
+          "defaultType": "WATER_EC",
+          "typeOptions": [
+            "WATER_EC",
+            "SOIL_EC"
+          ]
+        }
+      ],
+      "options": [
+        {
+          "key": "k",
+          "label": "Calibration factor",
+          "type": "float",
+          "min": 0.1,
+          "max": 10,
+          "default": 1
+        }
+      ],
+      "warmupMs": 100,
+      "readMs": 5,
+      "sleepSafe": true,
+      "wiring": "Gravity TDS board: + to 3.3 V, − to GND, A to an ADC pin. A water temperature sensor on the same device makes the value temperature compensated. Calibrate with a 1413 µS/cm solution: factor = 1.413 / shown EC.",
+      "libs": [],
+      "esphome": "adc"
+    },
+    {
+      "id": "wifi",
+      "name": "WiFi signal",
+      "summary": "Signal strength of the connection, no wiring",
+      "category": "generic",
+      "bus": "none",
+      "channels": [
+        {
+          "q": "rssi",
+          "defaultType": "RSSI",
+          "typeOptions": [
+            "RSSI"
+          ]
+        }
+      ],
+      "options": [],
+      "warmupMs": 0,
+      "readMs": 0,
+      "sleepSafe": true,
+      "wiring": "Nothing to wire. Useful to find a good spot, and gives a board with only outputs something to send: commands arrive with sent values.",
+      "libs": [],
+      "esphome": "wifi_signal"
+    },
+    {
+      "id": "relay",
+      "name": "Relay",
+      "summary": "Switches a pump, fan or lamp by command",
+      "kind": "output",
+      "options": [
+        {
+          "key": "cmd",
+          "label": "Command name",
+          "type": "text",
+          "pattern": "^[a-z][a-z0-9_]{0,14}$",
+          "default": "relay1"
+        },
+        {
+          "key": "active",
+          "label": "Switches on at",
+          "type": "enum",
+          "values": [
+            "HIGH",
+            "LOW"
+          ],
+          "default": "LOW"
+        },
+        {
+          "key": "start",
+          "label": "After power-up",
+          "type": "enum",
+          "values": [
+            "OFF",
+            "ON"
+          ],
+          "default": "OFF"
+        },
+        {
+          "key": "toggle",
+          "label": "On/off command",
+          "type": "bool",
+          "default": true
+        },
+        {
+          "key": "timed",
+          "label": "Timed command (milliseconds)",
+          "type": "bool",
+          "default": true
+        }
+      ],
+      "wiring": "Relay module: VCC to 5 V (or 3.3 V for 3 V modules), GND, IN to the pin. Most cheap modules switch on at LOW. Mains voltage only in a closed housing.",
+      "category": "outputs",
+      "bus": "gpio",
+      "pins": [
+        {
+          "key": "pin",
+          "label": "Signal",
+          "caps": [
+            "digital"
+          ]
+        }
+      ],
+      "channels": [],
+      "warmupMs": 0,
+      "readMs": 0,
+      "sleepSafe": false,
+      "requiresAwake": "loses its state in deep sleep",
+      "libs": [],
+      "esphome": "gpio"
+    },
+    {
+      "id": "led",
+      "name": "LED",
+      "summary": "An LED or LED strip driver, optionally dimmable",
+      "kind": "output",
+      "options": [
+        {
+          "key": "cmd",
+          "label": "Command name",
+          "type": "text",
+          "pattern": "^[a-z][a-z0-9_]{0,14}$",
+          "default": "led1"
+        },
+        {
+          "key": "active",
+          "label": "Switches on at",
+          "type": "enum",
+          "values": [
+            "HIGH",
+            "LOW"
+          ],
+          "default": "HIGH"
+        },
+        {
+          "key": "start",
+          "label": "After power-up",
+          "type": "enum",
+          "values": [
+            "OFF",
+            "ON"
+          ],
+          "default": "OFF"
+        },
+        {
+          "key": "toggle",
+          "label": "On/off command",
+          "type": "bool",
+          "default": true
+        },
+        {
+          "key": "timed",
+          "label": "Timed command (milliseconds)",
+          "type": "bool",
+          "default": true
+        },
+        {
+          "key": "dim",
+          "label": "Dimmable (brightness command)",
+          "type": "bool",
+          "default": false
+        }
+      ],
+      "wiring": "LED with a 220 Ω resistor from the pin to GND, or the gate input of an LED driver. A pin delivers at most about 12 mA.",
+      "category": "outputs",
+      "bus": "gpio",
+      "pins": [
+        {
+          "key": "pin",
+          "label": "LED",
+          "caps": [
+            "digital"
+          ]
+        }
+      ],
+      "channels": [],
+      "warmupMs": 0,
+      "readMs": 0,
+      "sleepSafe": false,
+      "requiresAwake": "loses its state in deep sleep",
+      "libs": [],
+      "esphome": "gpio"
+    },
+    {
+      "id": "output",
+      "name": "Switched output",
+      "summary": "A MOSFET, valve or buzzer by command",
+      "kind": "output",
+      "options": [
+        {
+          "key": "cmd",
+          "label": "Command name",
+          "type": "text",
+          "pattern": "^[a-z][a-z0-9_]{0,14}$",
+          "default": "out1"
+        },
+        {
+          "key": "active",
+          "label": "Switches on at",
+          "type": "enum",
+          "values": [
+            "HIGH",
+            "LOW"
+          ],
+          "default": "HIGH"
+        },
+        {
+          "key": "start",
+          "label": "After power-up",
+          "type": "enum",
+          "values": [
+            "OFF",
+            "ON"
+          ],
+          "default": "OFF"
+        },
+        {
+          "key": "toggle",
+          "label": "On/off command",
+          "type": "bool",
+          "default": true
+        },
+        {
+          "key": "timed",
+          "label": "Timed command (milliseconds)",
+          "type": "bool",
+          "default": true
+        }
+      ],
+      "wiring": "Logic-level MOSFET module: SIG to the pin, GND shared with the load supply. Put a flyback diode across pumps, valves and motors.",
+      "category": "outputs",
+      "bus": "gpio",
+      "pins": [
+        {
+          "key": "pin",
+          "label": "Signal",
+          "caps": [
+            "digital"
+          ]
+        }
+      ],
+      "channels": [],
+      "warmupMs": 0,
+      "readMs": 0,
+      "sleepSafe": false,
+      "requiresAwake": "loses its state in deep sleep",
+      "libs": [],
+      "esphome": "gpio"
+    },
+    {
+      "id": "button",
+      "name": "Button",
+      "summary": "Reports a press, can toggle an output",
+      "kind": "input",
+      "category": "outputs",
+      "bus": "gpio",
+      "pins": [
+        {
+          "key": "pin",
+          "label": "Button",
+          "caps": [
+            "digital"
+          ]
+        }
+      ],
+      "channels": [
+        {
+          "q": "btn",
+          "defaultType": "BUTTON",
+          "typeOptions": [
+            "*"
+          ]
+        }
+      ],
+      "options": [
+        {
+          "key": "pull",
+          "label": "Pull resistor",
+          "type": "enum",
+          "values": [
+            "UP",
+            "OFF"
+          ],
+          "default": "UP"
+        },
+        {
+          "key": "press",
+          "label": "Pressed reads",
+          "type": "enum",
+          "values": [
+            "LOW",
+            "HIGH"
+          ],
+          "default": "LOW"
+        },
+        {
+          "key": "toggles",
+          "label": "Toggles output",
+          "type": "text",
+          "pattern": "^([a-z][a-z0-9_]{0,14})?$",
+          "default": ""
+        }
+      ],
+      "warmupMs": 0,
+      "readMs": 0,
+      "sleepSafe": false,
+      "requiresAwake": "is only read while the board is awake",
+      "libs": [],
+      "esphome": "gpio",
+      "wiring": "One side to the pin, the other to GND (with \"UP\"). Each press is sent at once as value 1; remove the value to only toggle an output."
     }
   ]
 }

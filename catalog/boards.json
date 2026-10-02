@@ -89,7 +89,14 @@
       ],
       "notes": [
         "ADC2 pins (0, 2, 4, 12–15, 25–27) do not work while WiFi is on, so analog sensors use ADC1 only."
-      ]
+      ],
+      "timing": {
+        "bootMs": 300,
+        "wifiMs": 2500,
+        "wifiFastMs": 800,
+        "connectMs": 1500,
+        "valueMs": 350
+      }
     },
     "esp32s2": {
       "name": "ESP32-S2",
@@ -193,7 +200,14 @@
       ],
       "notes": [
         "Native USB: hold BOOT (GPIO0) and press RESET to flash. Press RESET once more afterwards."
-      ]
+      ],
+      "timing": {
+        "bootMs": 300,
+        "wifiMs": 2500,
+        "wifiFastMs": 800,
+        "connectMs": 1500,
+        "valueMs": 350
+      }
     },
     "esp32s3": {
       "name": "ESP32-S3",
@@ -293,7 +307,14 @@
       ],
       "notes": [
         "GPIO 33–37 are taken by modules with octal PSRAM (N8R8, N16R8) and are not offered."
-      ]
+      ],
+      "timing": {
+        "bootMs": 300,
+        "wifiMs": 2500,
+        "wifiFastMs": 800,
+        "connectMs": 1500,
+        "valueMs": 350
+      }
     },
     "esp32c3": {
       "name": "ESP32-C3",
@@ -354,7 +375,14 @@
       ],
       "notes": [
         "In deep sleep the USB port disappears. That is expected, not a crash."
-      ]
+      ],
+      "timing": {
+        "bootMs": 300,
+        "wifiMs": 2500,
+        "wifiFastMs": 800,
+        "connectMs": 1500,
+        "valueMs": 350
+      }
     },
     "esp32c6": {
       "name": "ESP32-C6",
@@ -430,7 +458,14 @@
       ],
       "notes": [
         "2.4 GHz only. WiFi 6 works, 5 GHz does not."
-      ]
+      ],
+      "timing": {
+        "bootMs": 300,
+        "wifiMs": 2500,
+        "wifiFastMs": 800,
+        "connectMs": 1500,
+        "valueMs": 350
+      }
     },
     "esp8266": {
       "name": "ESP8266",
@@ -480,7 +515,14 @@
       "notes": [
         "Deep sleep needs a wire from GPIO16 (D0) to RST, otherwise the board never wakes up. GPIO16 is kept free for it.",
         "One analog input only: A0, 0 to 3.2 V on NodeMCU and D1 mini. The ESP8266 has less memory, so at most 8 sensors."
-      ]
+      ],
+      "timing": {
+        "bootMs": 300,
+        "wifiMs": 4000,
+        "wifiFastMs": 1200,
+        "connectMs": 3200,
+        "valueMs": 600
+      }
     }
   },
   "boards": [
@@ -498,9 +540,16 @@
         "scl": 22
       },
       "defaultPins": {
-        "onewire": [4],
-        "gpio": [27],
-        "analog": [34, 35]
+        "onewire": [
+          4
+        ],
+        "gpio": [
+          27
+        ],
+        "analog": [
+          34,
+          35
+        ]
       },
       "batteryFriendly": false
     },
@@ -521,9 +570,16 @@
         "scl": 22
       },
       "defaultPins": {
-        "onewire": [4],
-        "gpio": [27],
-        "analog": [34, 35]
+        "onewire": [
+          4
+        ],
+        "gpio": [
+          27
+        ],
+        "analog": [
+          34,
+          35
+        ]
       },
       "batteryFriendly": false
     },
@@ -541,9 +597,16 @@
         "scl": 22
       },
       "defaultPins": {
-        "onewire": [4],
-        "gpio": [27],
-        "analog": [34, 35]
+        "onewire": [
+          4
+        ],
+        "gpio": [
+          27
+        ],
+        "analog": [
+          34,
+          35
+        ]
       },
       "batteryFriendly": false
     },
@@ -561,9 +624,16 @@
         "scl": 35
       },
       "defaultPins": {
-        "onewire": [16],
-        "gpio": [18],
-        "analog": [1, 2]
+        "onewire": [
+          16
+        ],
+        "gpio": [
+          18
+        ],
+        "analog": [
+          1,
+          2
+        ]
       },
       "led": 15,
       "batteryFriendly": false
@@ -582,9 +652,16 @@
         "scl": 9
       },
       "defaultPins": {
-        "onewire": [17],
-        "gpio": [18],
-        "analog": [1, 2]
+        "onewire": [
+          17
+        ],
+        "gpio": [
+          18
+        ],
+        "analog": [
+          1,
+          2
+        ]
       },
       "batteryFriendly": false
     },
@@ -619,9 +696,16 @@
         "scl": 9
       },
       "defaultPins": {
-        "onewire": [12],
-        "gpio": [13],
-        "analog": [1, 2]
+        "onewire": [
+          12
+        ],
+        "gpio": [
+          13
+        ],
+        "analog": [
+          1,
+          2
+        ]
       },
       "led": 48,
       "batteryFriendly": true
@@ -654,20 +738,27 @@
         "4": "D3",
         "5": "D4",
         "6": "D5",
-        "43": "D6",
-        "44": "D7",
         "7": "D8",
         "8": "D9",
-        "9": "D10"
+        "9": "D10",
+        "43": "D6",
+        "44": "D7"
       },
       "i2c": {
         "sda": 5,
         "scl": 6
       },
       "defaultPins": {
-        "onewire": [2],
-        "gpio": [4],
-        "analog": [1, 7]
+        "onewire": [
+          2
+        ],
+        "gpio": [
+          4
+        ],
+        "analog": [
+          1,
+          7
+        ]
       },
       "led": 21,
       "batteryFriendly": true
@@ -686,9 +777,16 @@
         "scl": 7
       },
       "defaultPins": {
-        "onewire": [10],
-        "gpio": [5],
-        "analog": [3, 4]
+        "onewire": [
+          10
+        ],
+        "gpio": [
+          5
+        ],
+        "analog": [
+          3,
+          4
+        ]
       },
       "batteryFriendly": false
     },
@@ -721,9 +819,16 @@
         "scl": 7
       },
       "defaultPins": {
-        "onewire": [10],
-        "gpio": [5],
-        "analog": [3, 4]
+        "onewire": [
+          10
+        ],
+        "gpio": [
+          5
+        ],
+        "analog": [
+          3,
+          4
+        ]
       },
       "led": 8,
       "batteryFriendly": true
@@ -756,20 +861,27 @@
         "5": "D3",
         "6": "D4",
         "7": "D5",
-        "21": "D6",
-        "20": "D7",
         "8": "D8",
         "9": "D9",
-        "10": "D10"
+        "10": "D10",
+        "20": "D7",
+        "21": "D6"
       },
       "i2c": {
         "sda": 6,
         "scl": 7
       },
       "defaultPins": {
-        "onewire": [10],
-        "gpio": [5],
-        "analog": [3, 4]
+        "onewire": [
+          10
+        ],
+        "gpio": [
+          5
+        ],
+        "analog": [
+          3,
+          4
+        ]
       },
       "batteryFriendly": true
     },
@@ -787,9 +899,16 @@
         "scl": 7
       },
       "defaultPins": {
-        "onewire": [18],
-        "gpio": [19],
-        "analog": [0, 1]
+        "onewire": [
+          18
+        ],
+        "gpio": [
+          19
+        ],
+        "analog": [
+          0,
+          1
+        ]
       },
       "batteryFriendly": false
     },
@@ -821,23 +940,30 @@
         "0": "D0",
         "1": "D1",
         "2": "D2",
-        "21": "D3",
-        "22": "D4",
-        "23": "D5",
         "16": "D6",
         "17": "D7",
+        "18": "D10",
         "19": "D8",
         "20": "D9",
-        "18": "D10"
+        "21": "D3",
+        "22": "D4",
+        "23": "D5"
       },
       "i2c": {
         "sda": 22,
         "scl": 23
       },
       "defaultPins": {
-        "onewire": [21],
-        "gpio": [19],
-        "analog": [0, 1]
+        "onewire": [
+          21
+        ],
+        "gpio": [
+          19
+        ],
+        "analog": [
+          0,
+          1
+        ]
       },
       "led": 15,
       "batteryFriendly": true
@@ -864,16 +990,16 @@
         17
       ],
       "labels": {
-        "5": "D1",
-        "4": "D2",
         "0": "D3",
+        "1": "TX",
         "2": "D4",
-        "14": "D5",
+        "3": "RX",
+        "4": "D2",
+        "5": "D1",
         "12": "D6",
         "13": "D7",
+        "14": "D5",
         "15": "D8",
-        "3": "RX",
-        "1": "TX",
         "17": "A0"
       },
       "i2c": {
@@ -881,9 +1007,15 @@
         "scl": 5
       },
       "defaultPins": {
-        "onewire": [14],
-        "gpio": [12],
-        "analog": [17]
+        "onewire": [
+          14
+        ],
+        "gpio": [
+          12
+        ],
+        "analog": [
+          17
+        ]
       },
       "led": 2,
       "adcRangeMv": 3200,
@@ -911,16 +1043,16 @@
         17
       ],
       "labels": {
-        "5": "D1",
-        "4": "D2",
         "0": "D3",
+        "1": "TX",
         "2": "D4",
-        "14": "D5",
+        "3": "RX",
+        "4": "D2",
+        "5": "D1",
         "12": "D6",
         "13": "D7",
+        "14": "D5",
         "15": "D8",
-        "3": "RX",
-        "1": "TX",
         "17": "A0"
       },
       "i2c": {
@@ -928,9 +1060,15 @@
         "scl": 5
       },
       "defaultPins": {
-        "onewire": [14],
-        "gpio": [12],
-        "analog": [17]
+        "onewire": [
+          14
+        ],
+        "gpio": [
+          12
+        ],
+        "analog": [
+          17
+        ]
       },
       "led": 2,
       "adcRangeMv": 3200,

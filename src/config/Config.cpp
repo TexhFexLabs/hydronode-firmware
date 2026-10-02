@@ -88,6 +88,11 @@ float DeviceConfig::number(const char* key, float fallback) const {
     return o ? o->number : fallback;
 }
 
+const char* DeviceConfig::text(const char* key, const char* fallback) const {
+    const OptionValue* o = option(key);
+    return o && o->text[0] ? o->text : fallback;
+}
+
 uint32_t crc32(const uint8_t* data, size_t len) {
     uint32_t crc = 0xFFFFFFFFu;
     for (size_t i = 0; i < len; i++) {
@@ -193,8 +198,10 @@ ParseResult parsePayload(const char* json, size_t len, Config& out) {
         DeviceConfig& d = out.devices[out.deviceCount++];
         if (!copyString(dev["drv"], d.driver, sizeof(d.driver))) return fail(ConfigError::MissingField, "devices.drv");
         d.pin = -1;
+        d.pin2 = -1;
         d.bus = -1;
         if (!dev["pin"].isNull() && !validPin(dev["pin"], d.pin)) return fail(ConfigError::BadValue, "devices.pin");
+        if (!dev["pin2"].isNull() && !validPin(dev["pin2"], d.pin2)) return fail(ConfigError::BadValue, "devices.pin2");
         if (!dev["bus"].isNull()) {
             int bus = dev["bus"] | -1;
             if (bus < 0 || bus >= out.i2cCount) return fail(ConfigError::BadValue, "devices.bus");
@@ -203,10 +210,12 @@ ParseResult parsePayload(const char* json, size_t len, Config& out) {
             if (addr < 0x08 || addr > 0x77) return fail(ConfigError::BadValue, "devices.addr");
             d.address = uint8_t(addr);
         }
-        if (d.pin < 0 && d.bus < 0) return fail(ConfigError::MissingField, "devices.pin");
+        // Everything but the WiFi signal is wired somewhere.
+        if (d.pin < 0 && d.bus < 0 && strcmp(d.driver, "wifi") != 0) return fail(ConfigError::MissingField, "devices.pin");
 
+        // Outputs (relays, LEDs) and a button that only switches locally send nothing.
         JsonArrayConst channels = dev["ch"];
-        if (channels.size() == 0 || channels.size() > kMaxChannels) return fail(ConfigError::BadValue, "devices.ch");
+        if (channels.size() > kMaxChannels) return fail(ConfigError::BadValue, "devices.ch");
         if (out.channelPoolUsed + channels.size() > kMaxTotalChannels) return fail(ConfigError::BadValue, "devices.ch.total");
         d.channels = &out.channelPool[out.channelPoolUsed];
         out.channelPoolUsed += channels.size();
@@ -217,6 +226,9 @@ ParseResult parsePayload(const char* json, size_t len, Config& out) {
                 return fail(ConfigError::BadValue, "devices.ch.type");
             }
             c.index = int8_t(ch["idx"] | -1);
+            uint32_t every = ch["n"] | 1u;
+            if (every < 1 || every > 65535) return fail(ConfigError::BadValue, "devices.ch.n");
+            c.every = uint16_t(every);
             if (!ch["addr"].isNull()) {
                 if (!copyString(ch["addr"], c.addr, sizeof(c.addr)) || !isHex16(c.addr)) {
                     return fail(ConfigError::BadValue, "devices.ch.addr");
@@ -231,7 +243,9 @@ ParseResult parsePayload(const char* json, size_t len, Config& out) {
             if (strlen(kv.key().c_str()) >= sizeof(o.key)) return fail(ConfigError::BadValue, "devices.opt.key");
             strcpy(o.key, kv.key().c_str());
             if (kv.value().is<const char*>()) {
-                if (!copyString(kv.value(), o.text, sizeof(o.text))) return fail(ConfigError::BadValue, "devices.opt.value");
+                if (!copyString(kv.value(), o.text, sizeof(o.text), true)) return fail(ConfigError::BadValue, "devices.opt.value");
+            } else if (kv.value().is<bool>()) {
+                o.number = kv.value().as<bool>() ? 1 : 0;
             } else if (kv.value().is<float>()) {
                 o.number = kv.value().as<float>();
             } else {

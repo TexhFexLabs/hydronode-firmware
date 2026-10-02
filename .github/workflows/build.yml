@@ -41,7 +41,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        env: [esp32, esp32s2, esp32s3, esp32c3, esp32c6, esp8266]
+        env: [esp32, esp32s2, esp32s3, esp32c3, esp32c6, esp8266, scan-esp32, scan-esp32s2, scan-esp32s3, scan-esp32c3, scan-esp32c6, scan-esp8266]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

@@ -17,8 +17,6 @@ namespace hn::power {
 
 namespace {
 
-constexpr uint64_t kMicros = 1000000ULL;
-
 void armWakePin(const Config& cfg, bool deep) {
     if (cfg.wakePin < 0) return;
     gpio_num_t pin = gpio_num_t(cfg.wakePin);
@@ -84,25 +82,42 @@ void sensorsOff(const Config& cfg) {
     gpio_hold_en(gpio_num_t(cfg.sensorPowerPin));
 }
 
-uint32_t sleepSeconds(uint32_t intervalSeconds, uint32_t awakeMs) {
-    uint32_t awake = awakeMs / 1000;
-    return intervalSeconds > awake + 1 ? intervalSeconds - awake : 1;
+uint32_t sleepMs(uint32_t intervalSeconds, uint32_t awakeMs) {
+    uint32_t interval = intervalSeconds * 1000;
+    return interval > awakeMs + 1000 ? interval - awakeMs : 1000;
 }
 
-void lightSleep(const Config& cfg, uint32_t seconds) {
-    status::line("SLEEP LIGHT %lu", (unsigned long)seconds);
+namespace {
+constexpr uint32_t kRoundMagic = 0x484E5244;  // "HNRD"
+RTC_DATA_ATTR uint32_t roundMagic = 0;
+RTC_DATA_ATTR Rounds savedRounds = {0, 0};
+}  // namespace
+
+Rounds loadRounds(bool fresh) {
+    if (fresh || roundMagic != kRoundMagic) return {0, 0};
+    return savedRounds;
+}
+
+void saveRounds(const Rounds& rounds) {
+    roundMagic = kRoundMagic;
+    savedRounds = rounds;
+}
+
+void lightSleep(const Config& cfg, uint32_t ms) {
+    status::line("SLEEP LIGHT %lu.%02lu", (unsigned long)(ms / 1000), (unsigned long)(ms % 1000 / 10));
     status::flush();
-    esp_sleep_enable_timer_wakeup(uint64_t(seconds) * kMicros);
+    esp_sleep_enable_timer_wakeup(uint64_t(ms) * 1000ULL);
     armWakePin(cfg, false);
     esp_light_sleep_start();
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
 }
 
-void deepSleep(const Config& cfg, uint32_t seconds) {
+void deepSleep(const Config& cfg, uint32_t ms) {
     bool hibernate = cfg.mode == SleepMode::Hibernate;
-    status::line("SLEEP %s %lu", hibernate ? "HIBERNATE" : "DEEP", (unsigned long)seconds);
+    status::line("SLEEP %s %lu.%02lu", hibernate ? "HIBERNATE" : "DEEP", (unsigned long)(ms / 1000),
+                 (unsigned long)(ms % 1000 / 10));
     status::flush();
-    esp_sleep_enable_timer_wakeup(uint64_t(seconds) * kMicros);
+    esp_sleep_enable_timer_wakeup(uint64_t(ms) * 1000ULL);
     if (hibernate) {
         // Power down everything that is not needed for the timer.
 #if SOC_PM_SUPPORT_RTC_PERIPH_PD

@@ -52,6 +52,53 @@ def partitions() -> dict:
     return rows
 
 
+def package(family: str, spec: dict, env: str, target: Path, parts: dict) -> dict:
+    """One flashable image at offset 0: the ESP8266 app as is, ESP32 apps merged with bootloader,
+    partition table and boot_app0."""
+    build = ROOT / ".pio" / "build" / env
+    if family == "esp8266":
+        # No partition table: firmware.bin already starts with the eboot loader, flashed at 0.
+        app = build / "firmware.bin"
+        if not app.exists():
+            sys.exit(f"{env}: missing {app}, run pio run -e {env}")
+        shutil.copy(app, target)
+        if target.stat().st_size > spec["configOffset"]:
+            sys.exit(f"{env}: image overlaps the config area")
+        return {
+            "file": target.name,
+            "chip": spec["chip"],
+            "offset": 0,
+            "size": target.stat().st_size,
+            "sha256": sha256(target),
+            "configOffset": spec["configOffset"],
+        }
+    needed = [build / "bootloader.bin", build / "partitions.bin", build / "firmware.bin"]
+    missing = [str(p) for p in needed if not p.exists()]
+    if missing:
+        sys.exit(f"{env}: missing {missing}, run pio run -e {env}")
+    subprocess.run(
+        [
+            sys.executable, "-m", "esptool", "--chip", CHIP_ARG[family], "merge-bin",
+            "-o", str(target), "--flash-mode", "dio", "--flash-size", "4MB",
+            hex(spec["bootloaderOffset"]), str(build / "bootloader.bin"),
+            hex(PARTITION_TABLE_OFFSET), str(build / "partitions.bin"),
+            hex(parts["otadata"]["offset"]), str(BOOT_APP0),
+            hex(parts["app0"]["offset"]), str(build / "firmware.bin"),
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+    if target.stat().st_size > parts["hncfg"]["offset"]:
+        sys.exit(f"{env}: merged image overlaps the config partition")
+    return {
+        "file": target.name,
+        "chip": spec["chip"],
+        "offset": 0,
+        "size": target.stat().st_size,
+        "sha256": sha256(target),
+    }
+
+
 def main() -> int:
     lines = subprocess.run([sys.executable, "-m", "esptool", "version"], capture_output=True, text=True).stdout.split()
     found = lines[-1].lstrip("v") if lines else "none"
@@ -72,51 +119,12 @@ def main() -> int:
     out.mkdir(parents=True)
 
     images = {}
+    scanners = {}
     for family, spec in catalog["families"].items():
-        build = ROOT / ".pio" / "build" / spec["env"]
-        target = out / f"{family}.bin"
-        if family == "esp8266":
-            # No partition table: firmware.bin already starts with the eboot loader, flashed at 0.
-            app = build / "firmware.bin"
-            if not app.exists():
-                sys.exit(f"{family}: missing {app}, run pio run -e {spec['env']}")
-            shutil.copy(app, target)
-            if target.stat().st_size > spec["configOffset"]:
-                sys.exit(f"{family}: image overlaps the config area")
-            images[family] = {
-                "file": target.name,
-                "chip": spec["chip"],
-                "offset": 0,
-                "size": target.stat().st_size,
-                "sha256": sha256(target),
-                "configOffset": spec["configOffset"],
-            }
-            continue
-        needed = [build / "bootloader.bin", build / "partitions.bin", build / "firmware.bin"]
-        missing = [str(p) for p in needed if not p.exists()]
-        if missing:
-            sys.exit(f"{family}: missing {missing}, run pio run -e {spec['env']}")
-        subprocess.run(
-            [
-                sys.executable, "-m", "esptool", "--chip", CHIP_ARG[family], "merge-bin",
-                "-o", str(target), "--flash-mode", "dio", "--flash-size", "4MB",
-                hex(spec["bootloaderOffset"]), str(build / "bootloader.bin"),
-                hex(PARTITION_TABLE_OFFSET), str(build / "partitions.bin"),
-                hex(parts["otadata"]["offset"]), str(BOOT_APP0),
-                hex(parts["app0"]["offset"]), str(build / "firmware.bin"),
-            ],
-            check=True,
-            stdout=subprocess.DEVNULL,
-        )
-        if target.stat().st_size > parts["hncfg"]["offset"]:
-            sys.exit(f"{family}: merged image overlaps the config partition")
-        images[family] = {
-            "file": target.name,
-            "chip": spec["chip"],
-            "offset": 0,
-            "size": target.stat().st_size,
-            "sha256": sha256(target),
-        }
+        images[family] = package(family, spec, spec["env"], out / f"{family}.bin", parts)
+        scanners[family] = package(family, spec, f"scan-{spec['env']}", out / f"scan-{family}.bin", parts)
+        # The scanner is flashed without a config block.
+        scanners[family].pop("configOffset", None)
 
     shutil.copy(ROOT / "dist" / "catalog.json", out / "catalog.json")
     shutil.copy(licenses, out / "THIRD_PARTY_LICENSES.md")
@@ -127,6 +135,7 @@ def main() -> int:
         "minFlashBytes": 4 * 1024 * 1024,
         "config": {"offset": parts["hncfg"]["offset"], "size": parts["hncfg"]["size"], "schema": 1},
         "images": images,
+        "scanners": scanners,
         "catalog": {"file": "catalog.json", "sha256": sha256(out / "catalog.json")},
         "licenses": {"file": "THIRD_PARTY_LICENSES.md", "sha256": sha256(out / "THIRD_PARTY_LICENSES.md")},
         "source": f"https://github.com/TexhFexLabs/hydronode-firmware/tree/v{version}",
@@ -140,7 +149,7 @@ def main() -> int:
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
         for p in sorted(out.iterdir()):
             z.write(p, p.name)
-    print(f"release {version}: {len(images)} images → {archive} (sha256 {sha256(archive)})")
+    print(f"release {version}: {len(images)} images, {len(scanners)} scanners → {archive} (sha256 {sha256(archive)})")
     return 0
 
 
