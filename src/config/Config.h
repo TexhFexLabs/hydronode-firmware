@@ -36,7 +36,7 @@ constexpr uint8_t kMaxTotalChannels = 16;
 #else
 constexpr uint8_t kMaxTotalChannels = 48;
 #endif
-constexpr uint8_t kMaxOptions = 4;
+constexpr uint8_t kMaxOptions = 6;
 constexpr uint8_t kMaxI2cBuses = 2;
 constexpr uint32_t kMinIntervalSeconds = 10;
 constexpr uint32_t kMaxIntervalSeconds = 7 * 24 * 3600;
@@ -60,8 +60,10 @@ struct ChannelConfig {
     char type[65];    // HydroNode measurement type, [A-Z][A-Z0-9_]{0,63}
     int8_t index;     // position on a 1-Wire bus, -1 when addr is used
     char addr[17];    // 1-Wire ROM address as 16 hex chars, empty when unused
+    uint16_t every;   // sent every n-th round (1 = every round)
 };
 
+// Options are numbers (true/false arrive as 1/0) or short texts (enum values, command names).
 struct OptionValue {
     char key[16];
     float number;
@@ -71,6 +73,7 @@ struct OptionValue {
 struct DeviceConfig {
     char driver[16];
     int8_t pin;       // data/analog pin, -1 for I2C devices
+    int8_t pin2;      // second pin (echo of an HC-SR04), -1 when unused
     int8_t bus;       // I2C bus index, -1 for non-I2C devices
     uint8_t address;  // I2C address, 0 when unused
     ChannelConfig* channels;  // slice of Config::channelPool
@@ -80,6 +83,8 @@ struct DeviceConfig {
 
     const OptionValue* option(const char* key) const;
     float number(const char* key, float fallback) const;
+    // The text of an option, or `fallback` when it is missing or empty.
+    const char* text(const char* key, const char* fallback) const;
 };
 
 struct I2cBusConfig {

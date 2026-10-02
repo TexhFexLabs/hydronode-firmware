@@ -71,6 +71,10 @@ for (const [id, fam] of Object.entries(boards.families)) {
   for (const pin of fam.usb) if (fam.gpios.includes(pin)) fail(`family ${id}: USB pin ${pin} must not be offered as gpio`);
   for (const m of fam.sleepModes) if (!modeIds.has(m)) fail(`family ${id}: unknown sleep mode ${m}`);
   if (![1, 2].includes(fam.i2cBuses)) fail(`family ${id}: i2cBuses must be 1 or 2`);
+  // The web app adds these up to the fastest interval a configuration can keep.
+  for (const key of ['bootMs', 'wifiMs', 'wifiFastMs', 'connectMs', 'valueMs']) {
+    if (!(fam.timing?.[key] > 0)) fail(`family ${id}: timing.${key} missing`);
+  }
   // The parser's channel pool (kMaxTotalChannels in src/config/Config.h) must match.
   {
     const header = readFileSync(join(root, 'src/config/Config.h'), 'utf8');
@@ -121,27 +125,58 @@ for (const b of boards.boards) {
 }
 
 // --- drivers --------------------------------------------------------------------
+// Ids the firmware knows: createDriver() in src/drivers/Drivers.cpp, isActuator() in
+// src/actuators/Actuators.cpp. A catalog entry without firmware support would flash a device that
+// reports "ERR SENSOR <id> unknown".
+const firmwareIds = new Set([
+  ...readFileSync(join(root, 'src/drivers/Drivers.cpp'), 'utf8').matchAll(/strcmp\(id, "([a-z0-9]+)"\) == 0/g),
+  ...readFileSync(join(root, 'src/actuators/Actuators.cpp'), 'utf8').matchAll(/strcmp\(driver, "([a-z0-9]+)"\) == 0/g),
+].map((m) => m[1]));
 const driverIds = new Set();
+const OPTION_TYPES = ['enum', 'int', 'float', 'bool', 'text'];
 for (const d of drivers.drivers) {
   if (driverIds.has(d.id)) fail(`driver ${d.id}: duplicate`);
   driverIds.add(d.id);
-  if (!['onewire', 'gpio', 'i2c', 'analog'].includes(d.bus)) fail(`driver ${d.id}: unknown bus ${d.bus}`);
+  if (!firmwareIds.has(d.id)) fail(`driver ${d.id}: the firmware does not know this id`);
+  if (!['onewire', 'gpio', 'i2c', 'analog', 'none'].includes(d.bus)) fail(`driver ${d.id}: unknown bus ${d.bus}`);
+  if (!['sensor', 'output', 'input', undefined].includes(d.kind)) fail(`driver ${d.id}: unknown kind ${d.kind}`);
   if (d.bus === 'i2c') {
     if (!d.addresses?.length || !d.addresses.includes(d.defaultAddress)) fail(`driver ${d.id}: i2c needs addresses incl. defaultAddress`);
-  } else if (!d.pins?.length) {
+  } else if (d.bus !== 'none' && !d.pins?.length) {
     fail(`driver ${d.id}: needs pins`);
   }
+  // The config carries at most two pins per device: "pin" and "pin2".
+  (d.pins ?? []).forEach((pin, i) => {
+    if (pin.key !== ['pin', 'pin2'][i]) fail(`driver ${d.id}: pin ${i + 1} must have key ${['pin', 'pin2'][i] ?? '(none, at most two)'}`);
+  });
+  if (!(d.readMs >= 0)) fail(`driver ${d.id}: readMs missing`);
+  if (d.kind === 'output' ? d.channels.length !== 0 : d.channels.length === 0) {
+    fail(`driver ${d.id}: ${d.kind === 'output' ? 'outputs send nothing' : 'needs at least one channel'}`);
+  }
+  const qs = new Set();
   for (const ch of d.channels) {
     if (!drivers.quantities[ch.q]) fail(`driver ${d.id}: unknown quantity ${ch.q}`);
+    if (qs.has(ch.q)) fail(`driver ${d.id}: quantity ${ch.q} twice`);
+    qs.add(ch.q);
     if (!TYPE_RE.test(ch.defaultType)) fail(`driver ${d.id}: invalid default type ${ch.defaultType}`);
     for (const t of ch.typeOptions) if (t !== '*' && !TYPE_RE.test(t)) fail(`driver ${d.id}: invalid type option ${t}`);
   }
   for (const name of d.libs) if (!libByName.has(name)) fail(`driver ${d.id}: library ${name} missing in libraries.json`);
   // Sampling every second needs a running CPU; such a sensor can never be sleep safe.
   if (d.continuous && d.sleepSafe) fail(`driver ${d.id}: continuous drivers cannot be sleepSafe`);
+  // Anything that rules out sleeping modes says why, in words the power step shows.
+  if ((d.continuous || d.kind) && !d.requiresAwake) fail(`driver ${d.id}: requiresAwake (the reason) missing`);
+  if (d.options.length > 6) fail(`driver ${d.id}: at most 6 options (kMaxOptions in src/config/Config.h)`);
   for (const o of d.options) {
-    if (!['enum', 'int', 'float'].includes(o.type)) fail(`driver ${d.id}: option ${o.key} has unknown type ${o.type}`);
+    if (!OPTION_TYPES.includes(o.type)) fail(`driver ${d.id}: option ${o.key} has unknown type ${o.type}`);
+    if (o.key.length > 15) fail(`driver ${d.id}: option key ${o.key} longer than 15 characters`);
     if (o.type === 'enum' && !o.values.includes(o.default)) fail(`driver ${d.id}: option ${o.key} default not in values`);
+    if (o.type === 'enum' && o.values.some((v) => v.length > 15)) fail(`driver ${d.id}: option ${o.key} value longer than 15 characters`);
+    if (o.type === 'bool' && typeof o.default !== 'boolean') fail(`driver ${d.id}: option ${o.key} default must be true or false`);
+    if (o.type === 'text') {
+      if (!o.pattern) fail(`driver ${d.id}: text option ${o.key} needs a pattern`);
+      else if (!new RegExp(o.pattern).test(o.default)) fail(`driver ${d.id}: option ${o.key} default does not match its pattern`);
+    }
   }
 }
 

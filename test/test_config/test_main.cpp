@@ -179,6 +179,41 @@ void test_channels_share_one_pool() {
     TEST_ASSERT_EQUAL(ConfigError::BadValue, parse(tooMany, cfg));
 }
 
+void test_every_and_outputs() {
+    // Default: every value every round.
+    TEST_ASSERT_EQUAL(ConfigError::Ok, parse(kMinimal, cfg));
+    TEST_ASSERT_EQUAL_UINT16(1, cfg.devices[0].channels[0].every);
+    TEST_ASSERT_EQUAL_INT8(-1, cfg.devices[0].pin2);
+
+    // Per value: every 3rd round.
+    TEST_ASSERT_EQUAL(ConfigError::Ok, parse(replace(kMinimal, "\"type\":\"TEMPERATURE\"", "\"type\":\"TEMPERATURE\",\"n\":3"), cfg));
+    TEST_ASSERT_EQUAL_UINT16(3, cfg.devices[0].channels[0].every);
+    TEST_ASSERT_EQUAL(ConfigError::BadValue, parse(replace(kMinimal, "\"type\":\"TEMPERATURE\"", "\"type\":\"TEMPERATURE\",\"n\":0"), cfg));
+    TEST_ASSERT_EQUAL(ConfigError::BadValue, parse(replace(kMinimal, "\"type\":\"TEMPERATURE\"", "\"type\":\"TEMPERATURE\",\"n\":70000"), cfg));
+
+    // A relay sends nothing and carries text and true/false options.
+    const std::string relay =
+        R"({"drv":"relay","pin":5,"opt":{"cmd":"relay1","active":"LOW","start":"OFF","toggle":true,"timed":false,"dim":0},"ch":[]})";
+    TEST_ASSERT_EQUAL(ConfigError::Ok, parse(replace(kMinimal, "\"devices\":[", std::string("\"devices\":[") + relay + ","), cfg));
+    const DeviceConfig& d = cfg.devices[0];
+    TEST_ASSERT_EQUAL_STRING("relay", d.driver);
+    TEST_ASSERT_EQUAL_UINT8(0, d.channelCount);
+    TEST_ASSERT_EQUAL_UINT8(6, d.optionCount);
+    TEST_ASSERT_EQUAL_STRING("relay1", d.text("cmd", "x"));
+    TEST_ASSERT_EQUAL_FLOAT(1, d.number("toggle", -1));
+    TEST_ASSERT_EQUAL_FLOAT(0, d.number("timed", -1));
+    TEST_ASSERT_EQUAL_STRING("fallback", d.text("missing", "fallback"));
+
+    // The WiFi signal needs no pin; any other device does.
+    TEST_ASSERT_EQUAL(ConfigError::Ok, parse(replace(kMinimal, "\"drv\":\"dht\",\"pin\":4", "\"drv\":\"wifi\""), cfg));
+    TEST_ASSERT_EQUAL(ConfigError::MissingField, parse(replace(kMinimal, "\"pin\":4,", ""), cfg));
+
+    // HC-SR04: trigger and echo pin.
+    TEST_ASSERT_EQUAL(ConfigError::Ok, parse(replace(kMinimal, "\"pin\":4", "\"pin\":4,\"pin2\":5"), cfg));
+    TEST_ASSERT_EQUAL_INT8(5, cfg.devices[0].pin2);
+    TEST_ASSERT_EQUAL(ConfigError::BadValue, parse(replace(kMinimal, "\"pin\":4", "\"pin\":4,\"pin2\":99"), cfg));
+}
+
 void test_type_rule_matches_backend() {
     TEST_ASSERT_TRUE(isValidType("TEMPERATURE2"));
     TEST_ASSERT_TRUE(isValidType("SOIL_MOISTURE"));
@@ -200,6 +235,7 @@ int main() {
     RUN_TEST(test_hibernate_disables_fast_reconnect);
     RUN_TEST(test_static_ip);
     RUN_TEST(test_channels_share_one_pool);
+    RUN_TEST(test_every_and_outputs);
     RUN_TEST(test_type_rule_matches_backend);
     return UNITY_END();
 }

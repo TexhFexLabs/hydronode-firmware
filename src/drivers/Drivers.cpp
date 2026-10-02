@@ -1,28 +1,51 @@
 // All sensor drivers. Each one is a thin adapter from a library (see
 // catalog/libraries.json for versions and licenses) to hn::Driver.
 
+#include <Adafruit_ADS1X15.h>
 #include <Adafruit_AHTX0.h>
 #include <Adafruit_BME280.h>
 #include <Adafruit_BME680.h>
 #include <Adafruit_BMP280.h>
+#include <Adafruit_BMP3XX.h>
+#include <Adafruit_DPS310.h>
 #include <Adafruit_HTU21DF.h>
 #include <Adafruit_INA219.h>
+#include <Adafruit_INA260.h>
+#include <Adafruit_LPS2X.h>
+#include <Adafruit_LTR390.h>
+#include <Adafruit_MCP9808.h>
+#include <Adafruit_MS8607.h>
+#include <Adafruit_PM25AQI.h>
+#include <Adafruit_SCD30.h>
 #include <Adafruit_SGP30.h>
 #include <Adafruit_SGP40.h>
 #include <Adafruit_SHT31.h>
+#include <Adafruit_SHTC3.h>
+#include <Adafruit_TMP117.h>
+#include <Adafruit_TSL2591.h>
 #include <Adafruit_VEML7700.h>
 #include <Arduino.h>
 #include <BH1750.h>
 #include <DHT.h>
 #include <DallasTemperature.h>
+#include <INA226.h>
 #include <NOxGasIndexAlgorithm.h>
 #include <OneWire.h>
+#include <SensirionI2CSen5x.h>
 #include <SensirionI2CSgp41.h>
 #include <SensirionI2cScd4x.h>
 #include <SensirionI2cSht4x.h>
+#include <VL53L0X.h>
 #include <VOCGasIndexAlgorithm.h>
 #include <math.h>
 #include <string.h>
+
+#if defined(ESP8266)
+#include <ESP8266WiFi.h>
+#include <SoftwareSerial.h>
+#else
+#include <WiFi.h>
+#endif
 
 #include "Driver.h"
 #include "status/Status.h"
@@ -524,6 +547,628 @@ private:
     bool ok_ = false;
 };
 
+class Ms8607 : public Driver {
+public:
+    Ms8607(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+
+    bool begin() override { return ok_ = ms_.begin(bus_); }
+
+    void read(Reading* out) override {
+        sensors_event_t t, p, rh;
+        bool ok = ok_ && ms_.getEvent(&p, &t, &rh);
+        fill(out, "t", t.temperature, ok);
+        fill(out, "rh", rh.relative_humidity, ok);
+        fill(out, "p", p.pressure, ok);
+    }
+
+    uint32_t warmupMs() const override { return 15; }
+
+private:
+    TwoWire* bus_;
+    Adafruit_MS8607 ms_;
+    bool ok_ = false;
+};
+
+class Bmp3xx : public Driver {
+public:
+    Bmp3xx(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+
+    // performReading() runs one forced measurement; 2x pressure, 1x temperature, no filter is
+    // Bosch's weather setting.
+    bool begin() override {
+        ok_ = bmp_.begin_I2C(cfg_.address, bus_);
+        if (ok_) {
+            bmp_.setTemperatureOversampling(BMP3_NO_OVERSAMPLING);
+            bmp_.setPressureOversampling(BMP3_OVERSAMPLING_2X);
+            bmp_.setIIRFilterCoeff(BMP3_IIR_FILTER_DISABLE);
+        }
+        return ok_;
+    }
+
+    void read(Reading* out) override {
+        bool ok = ok_ && bmp_.performReading();
+        fill(out, "t", bmp_.temperature, ok);
+        fill(out, "p", bmp_.pressure / 100.0, ok);
+    }
+
+    uint32_t warmupMs() const override { return 10; }
+
+private:
+    TwoWire* bus_;
+    Adafruit_BMP3XX bmp_;
+    bool ok_ = false;
+};
+
+class Dps310 : public Driver {
+public:
+    Dps310(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+
+    bool begin() override {
+        ok_ = dps_.begin_I2C(cfg_.address, bus_);
+        if (ok_) {
+            dps_.configurePressure(DPS310_1HZ, DPS310_8SAMPLES);
+            dps_.configureTemperature(DPS310_1HZ, DPS310_2SAMPLES);
+            dps_.setMode(DPS310_CONT_PRESTEMP);
+        }
+        return ok_;
+    }
+
+    void read(Reading* out) override {
+        bool ok = ok_;
+        for (uint32_t start = millis(); ok && !dps_.pressureAvailable(); delay(10)) {
+            if (millis() - start > 1500) ok = false;
+        }
+        sensors_event_t t, p;
+        ok = ok && dps_.getEvents(&t, &p);
+        fill(out, "t", t.temperature, ok);
+        fill(out, "p", p.pressure, ok);
+    }
+
+private:
+    TwoWire* bus_;
+    Adafruit_DPS310 dps_;
+    bool ok_ = false;
+};
+
+class Lps22 : public Driver {
+public:
+    Lps22(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+
+    // One-shot: the sensor measures on request and powers down in between.
+    bool begin() override {
+        ok_ = lps_.begin_I2C(cfg_.address, bus_);
+        if (ok_) lps_.setDataRate(LPS22_RATE_ONE_SHOT);
+        return ok_;
+    }
+
+    void read(Reading* out) override {
+        sensors_event_t p, t;
+        bool ok = ok_ && lps_.getEvent(&p, &t);
+        fill(out, "t", t.temperature, ok);
+        fill(out, "p", p.pressure, ok);
+    }
+
+    uint32_t warmupMs() const override { return 10; }
+
+private:
+    TwoWire* bus_;
+    Adafruit_LPS22 lps_;
+    bool ok_ = false;
+};
+
+class Shtc3 : public Driver {
+public:
+    Shtc3(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+
+    bool begin() override { return ok_ = shtc_.begin(bus_); }
+
+    void read(Reading* out) override {
+        sensors_event_t rh, t;
+        bool ok = ok_ && shtc_.getEvent(&rh, &t);
+        fill(out, "t", t.temperature, ok);
+        fill(out, "rh", rh.relative_humidity, ok);
+    }
+
+    uint32_t warmupMs() const override { return 10; }
+
+private:
+    TwoWire* bus_;
+    Adafruit_SHTC3 shtc_;
+    bool ok_ = false;
+};
+
+class Mcp9808 : public Driver {
+public:
+    Mcp9808(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+
+    // 0.0625 °C resolution (250 ms conversion); shut down between readings.
+    bool begin() override {
+        ok_ = mcp_.begin(cfg_.address, bus_);
+        if (ok_) {
+            mcp_.setResolution(3);
+            mcp_.shutdown();
+        }
+        return ok_;
+    }
+
+    void read(Reading* out) override {
+        if (!ok_) {
+            fill(out, "t", NAN, false);
+            return;
+        }
+        mcp_.wake();
+        delay(260);
+        float t = mcp_.readTempC();
+        mcp_.shutdown();
+        fill(out, "t", t, !isnan(t));
+    }
+
+private:
+    TwoWire* bus_;
+    Adafruit_MCP9808 mcp_;
+    bool ok_ = false;
+};
+
+class Tmp117 : public Driver {
+public:
+    Tmp117(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+
+    bool begin() override { return ok_ = tmp_.begin(cfg_.address, bus_); }
+
+    void read(Reading* out) override {
+        sensors_event_t t;
+        bool ok = ok_ && tmp_.getEvent(&t);
+        fill(out, "t", t.temperature, ok);
+    }
+
+    // Continuous mode with 8 averages delivers a value every second.
+    uint32_t warmupMs() const override { return 1100; }
+
+private:
+    TwoWire* bus_;
+    Adafruit_TMP117 tmp_;
+    bool ok_ = false;
+};
+
+class Tsl2591 : public Driver {
+public:
+    Tsl2591(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+
+    bool begin() override {
+        ok_ = tsl_.begin(bus_, cfg_.address);
+        if (ok_) {
+            tsl_.setTiming(TSL2591_INTEGRATIONTIME_100MS);
+            tsl_.disable();
+        }
+        return ok_;
+    }
+
+    // Starts at medium gain and steps down while the sensor saturates, from shade to full sun.
+    void read(Reading* out) override {
+        if (!ok_) {
+            fill(out, "lux", NAN, false);
+            return;
+        }
+        const tsl2591Gain_t gains[] = {TSL2591_GAIN_HIGH, TSL2591_GAIN_MED, TSL2591_GAIN_LOW};
+        float lux = NAN;
+        for (tsl2591Gain_t gain : gains) {
+            tsl_.setGain(gain);
+            tsl_.enable();
+            uint32_t both = tsl_.getFullLuminosity();
+            tsl_.disable();
+            uint16_t ir = both >> 16, full = both & 0xFFFF;
+            if (full < 36000 && ir < 36000) {
+                lux = tsl_.calculateLux(full, ir);
+                break;
+            }
+        }
+        fill(out, "lux", lux, !isnan(lux) && lux >= 0);
+    }
+
+private:
+    TwoWire* bus_;
+    Adafruit_TSL2591 tsl_{2591};
+    bool ok_ = false;
+};
+
+class Ltr390 : public Driver {
+public:
+    Ltr390(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+
+    bool begin() override {
+        ok_ = ltr_.begin(bus_);
+        if (ok_) {
+            ltr_.setGain(LTR390_GAIN_3);
+            ltr_.setResolution(LTR390_RESOLUTION_18BIT);  // 100 ms per conversion
+        }
+        return ok_;
+    }
+
+    void read(Reading* out) override {
+        bool want = has("uv"), wantLux = has("lux");
+        if (want) {
+            uint32_t uvs = 0;
+            bool ok = sample(LTR390_MODE_UVS, uvs);
+            // Datasheet: 2300 counts per UV index at gain 18 and 20 bit (400 ms); here gain 3,
+            // 18 bit (100 ms): 2300 / 6 / 4.
+            fill(out, "uv", uvs / (2300.0f / 24.0f), ok);
+        }
+        if (wantLux) {
+            uint32_t als = 0;
+            bool ok = sample(LTR390_MODE_ALS, als);
+            // Datasheet: lux = 0.6 × ALS / (gain × integration time in units of 100 ms).
+            fill(out, "lux", 0.6f * als / 3.0f, ok);
+        }
+    }
+
+private:
+    bool has(const char* q) const {
+        for (uint8_t i = 0; i < cfg_.channelCount; i++) {
+            if (strcmp(cfg_.channels[i].q, q) == 0) return true;
+        }
+        return false;
+    }
+
+    bool sample(ltr390_mode_t mode, uint32_t& value) {
+        if (!ok_) return false;
+        ltr_.setMode(mode);
+        ltr_.enable(true);
+        bool ready = false;
+        for (uint32_t start = millis(); millis() - start < 400 && !(ready = ltr_.newDataAvailable());) delay(10);
+        if (ready) value = mode == LTR390_MODE_UVS ? ltr_.readUVS() : ltr_.readALS();
+        ltr_.enable(false);
+        return ready;
+    }
+
+    TwoWire* bus_;
+    Adafruit_LTR390 ltr_;
+    bool ok_ = false;
+};
+
+class Scd30 : public Driver {
+public:
+    Scd30(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+
+    // Measures every 2 s on its own and keeps calibrating; the board only collects the result.
+    bool begin() override {
+        ok_ = scd_.begin(cfg_.address, bus_);
+        if (ok_) scd_.setMeasurementInterval(2);
+        return ok_;
+    }
+
+    void read(Reading* out) override {
+        bool ok = ok_;
+        for (uint32_t start = millis(); ok && !scd_.dataReady(); delay(100)) {
+            if (millis() - start > 3000) ok = false;
+        }
+        ok = ok && scd_.read() && scd_.CO2 > 0;
+        fill(out, "co2", scd_.CO2, ok);
+        fill(out, "t", scd_.temperature, ok);
+        fill(out, "rh", scd_.relative_humidity, ok);
+    }
+
+private:
+    TwoWire* bus_;
+    Adafruit_SCD30 scd_;
+    bool ok_ = false;
+};
+
+void fillParticles(const Driver& d, Reading* out, const PM25_AQI_Data& data, bool ok);
+
+class Pmsa003i : public Driver {
+public:
+    Pmsa003i(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+
+    bool begin() override { return ok_ = aqi_.begin_I2C(bus_); }
+
+    void read(Reading* out) override {
+        PM25_AQI_Data data{};
+        bool ok = ok_ && aqi_.read(&data);
+        fillParticles(*this, out, data, ok);
+    }
+
+    // The fan needs about 30 s after power-up before the counts are stable.
+    uint32_t warmupMs() const override { return 30000; }
+
+
+private:
+    TwoWire* bus_;
+    Adafruit_PM25AQI aqi_;
+    bool ok_ = false;
+};
+
+class Pms5003 : public Driver {
+public:
+    explicit Pms5003(const DeviceConfig& cfg) : Driver(cfg) {}
+
+    // Only the sensor's TX is needed: it sends a frame every second on its own.
+    bool begin() override {
+#if defined(ESP8266)
+        serial_.begin(9600, SWSERIAL_8N1, cfg_.pin, -1);
+        ok_ = aqi_.begin_UART(&serial_);
+#else
+        Serial1.begin(9600, SERIAL_8N1, cfg_.pin, -1);
+        ok_ = aqi_.begin_UART(&Serial1);
+#endif
+        return ok_;
+    }
+
+    void read(Reading* out) override {
+        PM25_AQI_Data data{};
+        bool ok = false;
+        // A frame takes up to a second; try for two.
+        for (uint32_t start = millis(); ok_ && !ok && millis() - start < 2500; delay(50)) ok = aqi_.read(&data);
+        fillParticles(*this, out, data, ok);
+    }
+
+    uint32_t warmupMs() const override { return 30000; }
+
+
+private:
+#if defined(ESP8266)
+    SoftwareSerial serial_;
+#endif
+    Adafruit_PM25AQI aqi_;
+    bool ok_ = false;
+};
+
+class Sen5x : public Driver {
+public:
+    Sen5x(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+
+    bool begin() override {
+        sen_.begin(*bus_);
+        ok_ = sen_.startMeasurement() == 0;
+        return ok_;
+    }
+
+    void read(Reading* out) override {
+        bool ready = false;
+        for (uint32_t start = millis(); ok_ && !ready && millis() - start < 1500; delay(50)) {
+            if (sen_.readDataReady(ready) != 0) break;
+        }
+        float pm1 = NAN, pm25 = NAN, pm4 = NAN, pm10 = NAN, rh = NAN, t = NAN, voc = NAN, nox = NAN;
+        bool ok = ready && sen_.readMeasuredValues(pm1, pm25, pm4, pm10, rh, t, voc, nox) == 0;
+        fill(out, "pm1", pm1, ok);
+        fill(out, "pm25", pm25, ok);
+        fill(out, "pm4", pm4, ok);
+        fill(out, "pm10", pm10, ok);
+        fill(out, "t", t, ok);
+        fill(out, "rh", rh, ok);
+        // NaN on the SEN54 (no NOx) and while the indices learn.
+        fill(out, "voc", voc, ok);
+        fill(out, "nox", nox, ok);
+    }
+
+    uint32_t warmupMs() const override { return 1100; }
+
+private:
+    TwoWire* bus_;
+    SensirionI2CSen5x sen_;
+    bool ok_ = false;
+};
+
+class Ina226 : public Driver {
+public:
+    Ina226(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), ina_(cfg.address, bus) {}
+
+    bool begin() override {
+        ok_ = ina_.begin() && ina_.isConnected();
+        if (ok_) ok_ = ina_.setMaxCurrentShunt(cfg_.number("maxA", 0.8f), cfg_.number("shunt", 0.1f)) == INA226_ERR_NONE;
+        return ok_;
+    }
+
+    void read(Reading* out) override {
+        fill(out, "v", ina_.getBusVoltage(), ok_);
+        fill(out, "i", ina_.getCurrent(), ok_);
+        fill(out, "w", ina_.getPower(), ok_);
+    }
+
+    uint32_t warmupMs() const override { return 5; }
+
+private:
+    INA226 ina_;
+    bool ok_ = false;
+};
+
+class Ina260 : public Driver {
+public:
+    Ina260(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+
+    bool begin() override { return ok_ = ina_.begin(cfg_.address, bus_); }
+
+    void read(Reading* out) override {
+        fill(out, "v", ina_.readBusVoltage() / 1000.0f, ok_);
+        fill(out, "i", ina_.readCurrent() / 1000.0f, ok_);
+        fill(out, "w", ina_.readPower() / 1000.0f, ok_);
+    }
+
+    uint32_t warmupMs() const override { return 5; }
+
+private:
+    TwoWire* bus_;
+    Adafruit_INA260 ina_;
+    bool ok_ = false;
+};
+
+class Ads1115 : public Driver {
+public:
+    Ads1115(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+
+    // ±4.096 V range: covers 0..3.3 V inputs (never more than the supply on any input).
+    bool begin() override {
+        ok_ = ads_.begin(cfg_.address, bus_);
+        if (ok_) ads_.setGain(GAIN_ONE);
+        return ok_;
+    }
+
+    void read(Reading* out) override {
+        const char* inputs[] = {"a0", "a1", "a2", "a3"};
+        for (uint8_t ch = 0; ch < 4; ch++) {
+            bool wanted = false;
+            for (uint8_t i = 0; i < cfg_.channelCount; i++) wanted = wanted || strcmp(cfg_.channels[i].q, inputs[ch]) == 0;
+            if (!wanted) continue;
+            float volts = ok_ ? ads_.computeVolts(ads_.readADC_SingleEnded(ch)) : NAN;
+            fill(out, inputs[ch], volts, ok_);
+        }
+    }
+
+    uint32_t warmupMs() const override { return 5; }
+
+private:
+    TwoWire* bus_;
+    Adafruit_ADS1115 ads_;
+    bool ok_ = false;
+};
+
+// Distance sensors also report a fill level when "empty" and "full" distances are set: a sensor
+// above a tank sees the water surface come closer as it fills.
+void fillDistance(const Driver& d, Reading* out, float cm, bool ok);
+
+class Vl53l0x : public Driver {
+public:
+    Vl53l0x(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+
+    bool begin() override {
+        tof_.setBus(bus_);
+        tof_.setTimeout(500);
+        ok_ = tof_.init();
+        return ok_;
+    }
+
+    void read(Reading* out) override {
+        uint32_t sum = 0;
+        uint8_t n = 0;
+        for (uint8_t i = 0; ok_ && i < 3; i++) {
+            uint16_t mm = tof_.readRangeSingleMillimeters();
+            if (!tof_.timeoutOccurred() && mm < 8190) {
+                sum += mm;
+                n++;
+            }
+        }
+        fillDistance(*this, out, n ? sum / 10.0f / n : NAN, n > 0);
+    }
+
+    uint32_t warmupMs() const override { return 5; }
+
+
+private:
+    TwoWire* bus_;
+    VL53L0X tof_;
+    bool ok_ = false;
+};
+
+class Hcsr04 : public Driver {
+public:
+    explicit Hcsr04(const DeviceConfig& cfg) : Driver(cfg) {}
+
+    bool begin() override {
+        pinMode(cfg_.pin, OUTPUT);
+        digitalWrite(cfg_.pin, LOW);
+        pinMode(cfg_.pin2, INPUT);
+        return true;
+    }
+
+    // Median of five echoes; the speed of sound follows the air temperature when another sensor
+    // measures it (331.3 + 0.606 × °C m/s).
+    void read(Reading* out) override {
+        float samples[5];
+        uint8_t n = 0;
+        for (uint8_t i = 0; i < 5; i++) {
+            digitalWrite(cfg_.pin, HIGH);
+            delayMicroseconds(10);
+            digitalWrite(cfg_.pin, LOW);
+            unsigned long us = pulseIn(cfg_.pin2, HIGH, 30000);
+            if (us > 0) samples[n++] = us;
+            delay(60);  // let the last echo die away
+        }
+        if (n == 0) {
+            fillDistance(*this, out, NAN, false);
+            return;
+        }
+        for (uint8_t i = 1; i < n; i++) {
+            for (uint8_t j = i; j > 0 && samples[j] < samples[j - 1]; j--) {
+                float tmp = samples[j];
+                samples[j] = samples[j - 1];
+                samples[j - 1] = tmp;
+            }
+        }
+        float t = isnan(ambient().t) ? 20.0f : ambient().t;
+        float cmPerUs = (331.3f + 0.606f * t) / 10000.0f;
+        fillDistance(*this, out, samples[n / 2] * cmPerUs / 2.0f, true);
+    }
+
+    uint32_t warmupMs() const override { return 50; }
+
+};
+
+// Pulse counters: a water flow meter (YF-S201 and friends) or a tipping-bucket rain gauge. Every
+// pulse is counted in an interrupt, so the CPU must keep running (Always on, Modem sleep).
+class Pulses : public Driver {
+public:
+    explicit Pulses(const DeviceConfig& cfg) : Driver(cfg) {}
+
+    bool begin() override {
+        pinMode(cfg_.pin, INPUT_PULLUP);
+        attachInterruptArg(digitalPinToInterrupt(cfg_.pin), onPulse, this, FALLING);
+        since_ = millis();
+        return true;
+    }
+
+    bool continuous() const override { return true; }
+
+    void read(Reading* out) override {
+        noInterrupts();
+        uint32_t count = count_;
+        count_ = 0;
+        interrupts();
+        uint32_t now = millis();
+        float minutes = (now - since_) / 60000.0f;
+        since_ = now;
+        if (strcmp(cfg_.driver, "rain") == 0) {
+            fill(out, "rain", count * cfg_.number("mm", 0.2794f), true);
+        } else {
+            float liters = count / cfg_.number("k", 450);
+            fill(out, "vol", liters, true);
+            fill(out, "flow", minutes > 0 ? liters / minutes : 0, minutes > 0);
+        }
+    }
+
+private:
+    static void IRAM_ATTR onPulse(void* self) { static_cast<Pulses*>(self)->count_++; }
+
+    volatile uint32_t count_ = 0;
+    uint32_t since_ = 0;
+};
+
+class WifiSignal : public Driver {
+public:
+    explicit WifiSignal(const DeviceConfig& cfg) : Driver(cfg) {}
+
+    bool begin() override { return true; }
+    bool afterConnect() const override { return true; }
+
+    void read(Reading* out) override {
+        bool ok = WiFi.status() == WL_CONNECTED;
+        fill(out, "rssi", ok ? WiFi.RSSI() : NAN, ok);
+    }
+};
+
+// Environmental (atmospheric) concentrations, µg/m³.
+void fillParticles(const Driver& d, Reading* out, const PM25_AQI_Data& data, bool ok) {
+    d.fill(out, "pm1", data.pm10_env, ok);
+    d.fill(out, "pm25", data.pm25_env, ok);
+    d.fill(out, "pm10", data.pm100_env, ok);
+}
+
+void fillDistance(const Driver& d, Reading* out, float cm, bool ok) {
+    d.fill(out, "dist", cm, ok);
+    float empty = d.cfg().number("empty", 0), full = d.cfg().number("full", 0);
+    bool level = empty != full;
+    float pct = level ? (empty - cm) / (empty - full) * 100.0f : NAN;
+    d.fill(out, "lvl", constrain(pct, 0.0f, 100.0f), ok && level);
+}
+
 // --- Analog ------------------------------------------------------------------------
 
 float readMillivolts(int8_t pin, uint16_t rangeMv) {
@@ -558,6 +1203,20 @@ public:
             fill(out, "m", constrain(pct, 0.0f, 100.0f), !isnan(pct));
         } else if (strcmp(cfg_.driver, "battery") == 0) {
             fill(out, "v", mv * cfg_.number("divider", 2) / 1000.0f, true);
+        } else if (strcmp(cfg_.driver, "ph") == 0) {
+            // Two-point calibration with pH 7 and pH 4 buffer solutions.
+            float v7 = cfg_.number("v7", 1500), v4 = cfg_.number("v4", 2030);
+            float ph = v7 == v4 ? NAN : 7.0f - 3.0f * (mv - v7) / (v4 - v7);
+            fill(out, "ph", ph, !isnan(ph) && ph > -1 && ph < 15);
+        } else if (strcmp(cfg_.driver, "tds") == 0) {
+            // Gravity TDS probe: cubic fit from the sensor's data sheet, compensated to 25 °C with
+            // the water (or air) temperature another sensor measured, then scaled by the factor
+            // from a calibration solution.
+            float t = isnan(ambient().t) ? 25.0f : ambient().t;
+            float v = mv / 1000.0f / (1.0f + 0.02f * (t - 25.0f));
+            float tds = (133.42f * v * v * v - 255.86f * v * v + 857.39f * v) * 0.5f * cfg_.number("k", 1);
+            fill(out, "tds", max(tds, 0.0f), true);
+            fill(out, "ec", max(tds, 0.0f) * 2.0f / 1000.0f, true);  // µS/cm → mS/cm
         } else {
             fill(out, "x", mv * cfg_.number("scale", 1) + cfg_.number("offset", 0), true);
         }
@@ -576,7 +1235,14 @@ Driver* createDriver(const DeviceConfig& cfg, TwoWire* buses[kMaxI2cBuses], uint
     const char* id = cfg.driver;
     if (strcmp(id, "ds18b20") == 0) return new Ds18b20(cfg);
     if (strcmp(id, "dht") == 0) return new Dht(cfg);
-    if (strcmp(id, "soil") == 0 || strcmp(id, "analog") == 0 || strcmp(id, "battery") == 0) return new Analog(cfg, adcRangeMv);
+    if (strcmp(id, "soil") == 0 || strcmp(id, "analog") == 0 || strcmp(id, "battery") == 0 || strcmp(id, "ph") == 0 ||
+        strcmp(id, "tds") == 0) {
+        return new Analog(cfg, adcRangeMv);
+    }
+    if (strcmp(id, "pms5003") == 0) return new Pms5003(cfg);
+    if (strcmp(id, "hcsr04") == 0) return new Hcsr04(cfg);
+    if (strcmp(id, "flow") == 0 || strcmp(id, "rain") == 0) return new Pulses(cfg);
+    if (strcmp(id, "wifi") == 0) return new WifiSignal(cfg);
 
     if (cfg.bus < 0 || !buses[cfg.bus]) return nullptr;
     TwoWire* bus = buses[cfg.bus];
@@ -594,6 +1260,22 @@ Driver* createDriver(const DeviceConfig& cfg, TwoWire* buses[kMaxI2cBuses], uint
     if (strcmp(id, "scd4x") == 0) return new Scd4x(cfg, bus, restartsEachCycle);
     if (strcmp(id, "veml7700") == 0) return new Veml7700(cfg, bus);
     if (strcmp(id, "ina219") == 0) return new Ina219(cfg, bus);
+    if (strcmp(id, "ms8607") == 0) return new Ms8607(cfg, bus);
+    if (strcmp(id, "bmp3xx") == 0) return new Bmp3xx(cfg, bus);
+    if (strcmp(id, "dps310") == 0) return new Dps310(cfg, bus);
+    if (strcmp(id, "lps22") == 0) return new Lps22(cfg, bus);
+    if (strcmp(id, "shtc3") == 0) return new Shtc3(cfg, bus);
+    if (strcmp(id, "mcp9808") == 0) return new Mcp9808(cfg, bus);
+    if (strcmp(id, "tmp117") == 0) return new Tmp117(cfg, bus);
+    if (strcmp(id, "tsl2591") == 0) return new Tsl2591(cfg, bus);
+    if (strcmp(id, "ltr390") == 0) return new Ltr390(cfg, bus);
+    if (strcmp(id, "scd30") == 0) return new Scd30(cfg, bus);
+    if (strcmp(id, "pmsa003i") == 0) return new Pmsa003i(cfg, bus);
+    if (strcmp(id, "sen5x") == 0) return new Sen5x(cfg, bus);
+    if (strcmp(id, "ina226") == 0) return new Ina226(cfg, bus);
+    if (strcmp(id, "ina260") == 0) return new Ina260(cfg, bus);
+    if (strcmp(id, "ads1115") == 0) return new Ads1115(cfg, bus);
+    if (strcmp(id, "vl53l0x") == 0) return new Vl53l0x(cfg, bus);
     return nullptr;
 }
 

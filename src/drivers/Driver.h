@@ -34,12 +34,16 @@ public:
     virtual bool continuous() const { return false; }
     virtual void tick() {}
 
+    // Read after WiFi is up instead of before (the WiFi signal strength).
+    virtual bool afterConnect() const { return false; }
+
     const DeviceConfig& cfg() const { return cfg_; }
 
-protected:
-    // Maps a channel quantity key to a value produced by the driver.
+    // Maps a channel quantity key to a value produced by the driver. Channels the user removed
+    // are simply not filled.
     void fill(Reading* out, const char* q, float value, bool ok) const;
 
+protected:
     const DeviceConfig& cfg_;
 };
 
