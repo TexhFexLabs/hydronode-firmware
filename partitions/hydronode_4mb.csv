@@ -1,5 +1,5 @@
-# HydroNode 4 MB layout. Two app slots so OTA can be added later without
-# re-partitioning over USB. "hncfg" holds the device config written by the
+# HydroNode 4 MB layout. Two app slots for updates over the air (firmware 0.5.0 and later),
+# the table itself never changes over the air. "hncfg" holds the device config written by the
 # web flasher (subtype 0x40, see src/config/ConfigBlob.h).
 # Name,     Type, SubType,  Offset,   Size
 nvs,        data, nvs,      0x9000,   0x5000

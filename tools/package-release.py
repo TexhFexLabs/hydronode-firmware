@@ -7,7 +7,9 @@ config block at the "hncfg" offset. Output:
 
   dist/release/<version>/
     manifest.json            images, hashes, config offset
-    <family>.bin             merged image per chip family
+    <family>.bin             merged image per chip family (USB flash at offset 0)
+    <family>-app.bin         bare app for updates over the air (ESP32 family), signed later by
+                             tools/sign-release.sh
     catalog.json             boards, drivers, sleep modes, libraries
     THIRD_PARTY_LICENSES.md  from tools/license-check.mjs
     SHA256SUMS
@@ -36,6 +38,7 @@ ESPTOOL_MAJOR = "5."
 BOOT_APP0 = PIO_HOME / "packages" / "framework-arduinoespressif32" / "tools" / "partitions" / "boot_app0.bin"
 
 PARTITION_TABLE_OFFSET = 0x8000
+OTA_MIN_VERSION = "0.5.0"
 CHIP_ARG = {"esp32": "esp32", "esp32s2": "esp32s2", "esp32s3": "esp32s3", "esp32c3": "esp32c3", "esp32c6": "esp32c6", "esp8266": "esp8266"}
 
 
@@ -99,6 +102,17 @@ def package(family: str, spec: dict, env: str, target: Path, parts: dict) -> dic
     }
 
 
+def ota_image(family: str, env: str, out: Path, parts: dict) -> dict:
+    """The bare app (no bootloader, no partition table) that an update writes into the other slot.
+    tools/sign-release.sh adds sig, keyId and downgrade."""
+    app = ROOT / ".pio" / "build" / env / "firmware.bin"
+    target = out / f"{family}-app.bin"
+    shutil.copy(app, target)
+    if target.stat().st_size > parts["app1"]["size"]:
+        sys.exit(f"{env}: app does not fit the OTA slot")
+    return {"file": target.name, "size": target.stat().st_size, "sha256": sha256(target)}
+
+
 def main() -> int:
     lines = subprocess.run([sys.executable, "-m", "esptool", "version"], capture_output=True, text=True).stdout.split()
     found = lines[-1].lstrip("v") if lines else "none"
@@ -122,6 +136,9 @@ def main() -> int:
     scanners = {}
     for family, spec in catalog["families"].items():
         images[family] = package(family, spec, spec["env"], out / f"{family}.bin", parts)
+        # Updates over the air: ESP32 family only, the ESP8266 has no second app slot.
+        if family != "esp8266":
+            images[family]["ota"] = ota_image(family, spec["env"], out, parts)
         scanners[family] = package(family, spec, f"scan-{spec['env']}", out / f"scan-{family}.bin", parts)
         # The scanner is flashed without a config block.
         scanners[family].pop("configOffset", None)
@@ -134,6 +151,8 @@ def main() -> int:
         "flashSize": "4MB",
         "minFlashBytes": 4 * 1024 * 1024,
         "config": {"offset": parts["hncfg"]["offset"], "size": parts["hncfg"]["size"], "schema": 1},
+        # First firmware that updates over the air; older boards need this one once over USB.
+        "otaMinVersion": OTA_MIN_VERSION,
         "images": images,
         "scanners": scanners,
         "catalog": {"file": "catalog.json", "sha256": sha256(out / "catalog.json")},

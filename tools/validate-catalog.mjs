@@ -41,7 +41,15 @@ for (const line of (envBlock.split(/^lib_deps\s*=\s*$/m)[1] ?? '').split('\n').s
   depLines.push(line.trim());
 }
 // "owner/Name@1.2.3" from the registry, or "https://….git#1.2.3" for a release tag on GitHub.
+// "symlink://../hydronode-library" is a development branch building against the sibling checkout
+// of our own library: it stands for the GitHub entry with the version that checkout declares.
 const iniDeps = new Map(depLines.map((l) => {
+  if (l.startsWith('symlink://')) {
+    const dir = join(root, l.slice('symlink://'.length));
+    const props = readFileSync(join(dir, 'library.properties'), 'utf8');
+    if (!/^name=HydroNode-Library$/m.test(props)) fail(`platformio.ini: ${l} is not HydroNode-Library`);
+    return ['https://github.com/TexhFexLabs/HydroNode-Library.git', /^version=(\S+)/m.exec(props)?.[1]];
+  }
   const at = l.startsWith('https://') ? l.lastIndexOf('#') : l.lastIndexOf('@');
   return [l.slice(0, at), l.slice(at + 1)];
 }));
@@ -85,11 +93,11 @@ for (const [id, fam] of Object.entries(boards.families)) {
   }
   if (fam.configOffset != null && (fam.configOffset % 4096 !== 0)) fail(`family ${id}: configOffset must be sector aligned`);
   // The web app writes the config block where the catalog says, the firmware reads it where
-  // main.cpp says. Both must be the same address.
+  // src/config/ConfigStore.cpp says. Both must be the same address.
   if (id === 'esp8266') {
-    const main = readFileSync(join(root, 'src/main.cpp'), 'utf8');
+    const main = readFileSync(join(root, 'src/config/ConfigStore.cpp'), 'utf8');
     const fw = Number(/kConfigOffset8266\s*=\s*(0x[0-9A-Fa-f]+)/.exec(main)?.[1]);
-    if (fam.configOffset !== fw) fail(`family esp8266: configOffset ${fam.configOffset} (0x${fam.configOffset?.toString(16)}) differs from kConfigOffset8266 0x${fw.toString(16)} in src/main.cpp`);
+    if (fam.configOffset !== fw) fail(`family esp8266: configOffset ${fam.configOffset} (0x${fam.configOffset?.toString(16)}) differs from kConfigOffset8266 0x${fw.toString(16)} in src/config/ConfigStore.cpp`);
   }
 }
 for (const b of boards.boards) {

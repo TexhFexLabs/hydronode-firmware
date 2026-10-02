@@ -63,6 +63,13 @@ Relays, LEDs and switched outputs listen to HydroNode commands named after the d
 so a board with outputs always sends at least one value (the WiFi signal costs nothing). A button
 sends its press right away and can toggle an output on the same board.
 
+## Updates over the air
+
+From 0.5.0 on, the ESP32 family takes signed firmware updates over the air and every family, the
+ESP8266 included, takes config updates. New firmware or config has to prove itself in its first wake
+cycle (Strict or Lenient), otherwise the board goes back to what it ran before. Outputs keep their
+last state over a restart. Details, signing with the YubiKey and the local dev key: [docs/OTA.md](docs/OTA.md).
+
 ## Scanner
 
 `scan-<family>` builds a small firmware that answers serial commands: `I2C <sda> <scl>` lists

@@ -1,0 +1,5 @@
+# Generated dev keys never leave this machine.
+*
+!.gitignore
+!README.md
+!make-dev-key.sh

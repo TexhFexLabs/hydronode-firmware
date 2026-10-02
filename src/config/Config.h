@@ -94,6 +94,7 @@ struct I2cBusConfig {
 };
 
 struct Config {
+    uint32_t rev;            // config revision ("rN" in the fleet view), 1 when the block has none
     char board[40];
     char sensorId[40];
     char secret[96];

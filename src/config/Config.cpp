@@ -131,6 +131,15 @@ ParseResult parsePayload(const char* json, size_t len, Config& out) {
     if (deserializeJson(doc, json, len)) return fail(ConfigError::BadJson, "json");
 
     if (doc["v"].as<int>() != kConfigSchema) return fail(ConfigError::BadSchema, "v");
+    // Counted up by every flash and every config update over the air; blocks written before
+    // 0.5.0 have none.
+    if (doc["rev"].isNull()) {
+        out.rev = 1;
+    } else if (!doc["rev"].is<uint32_t>() || doc["rev"].as<uint32_t>() == 0) {
+        return fail(ConfigError::BadValue, "rev");
+    } else {
+        out.rev = doc["rev"].as<uint32_t>();
+    }
     if (!copyString(doc["board"], out.board, sizeof(out.board))) return fail(ConfigError::MissingField, "board");
 
     JsonObjectConst sensor = doc["sensor"];

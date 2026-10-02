@@ -1,0 +1,110 @@
+# Updates over the air
+
+Firmware 0.5.0 and later update over the air. One USB flash with the device builder is needed to get
+there; after that the fleet view in HydroNode sends new firmware and new config to the board.
+
+| | ESP32, S2, S3, C3, C6 | ESP8266 |
+|---|---|---|
+| Firmware over the air | yes, signed images only | no (no second app slot) |
+| Config over the air | yes | yes |
+| Rollback | bootloader, plus the check below | old config from flash |
+
+## What the board reports
+
+Every request carries the version and how the board is doing (HydroNode-Library 1.6.0):
+
+```
+X-Firmware: hydronode/0.5.0 esp32c3 ota cfg=14
+X-Device-Status: boot=12;reset=poweron;uptime=45;rssi=-61;net=wifi;readErr=
+```
+
+`ota` appears only on the ESP32 family. `cfg` is the config revision, counted up by every flash and
+every config update. `readErr` lists the drivers that did not answer in this round.
+
+## Firmware update
+
+1. The answer to a sent value carries an offer next to `commands`:
+   `{"ota": {"job", "version", "family", "size", "sha256", "sig", "keyId", "downgrade", "verify", "url"}}`.
+2. After the round (every value is out), the board checks the offer: own chip family, a newer version
+   (or a signed downgrade flag), the size fits the free slot, and the signature verifies with a key
+   compiled into the firmware. Any failure is reported with `POST /api/webhook/sensor-ota-ack`
+   (`failed` + `bad_offer`, `family_mismatch`, `same_version`, `downgrade_not_allowed`, `no_space`,
+   `signature_invalid`) and nothing changes.
+3. The image streams into the inactive slot (`downloadSigned`, resumed with `Range` up to three times)
+   while its SHA-256 is computed. A mismatch (`sha256_mismatch`), an HTTP error (`http_<code>`) or a
+   stalled download (`timeout`) aborts; the running firmware stays.
+4. Boot slot switched, ack `downloaded`, restart.
+
+## Config update
+
+`{"config": {"job", "rev", "verify", "config"}}`: the device config without WiFi, sensor ID and
+secret. The board copies those three from its current config, writes the new block (same format as
+the web flasher, `HNC1` + CRC), keeps the old block (ESP32: NVS, ESP8266: flash next to the
+config), acks `config_applied` and restarts. A merged config the firmware would not run is refused
+with `config_invalid` before anything is written.
+
+## The first wake cycle decides
+
+New firmware starts "pending verify" (`verifyRollbackLater()` returns true, so the Arduino core does
+not confirm it on its own). Until it is confirmed, every request carries
+`X-Ota-State: verifying;try=1;mode=STRICT;job=<id>`.
+
+- **Strict** (`STRICT`): a signed ingest with a 2xx answer and every configured sensor read.
+- **Lenient** (`INGEST`): a signed ingest with a 2xx answer.
+
+Up to three tries, 15 s apart, at most two minutes. The board does not sleep before the verdict.
+
+- Passed: firmware marked valid (`esp_ota_mark_app_valid_cancel_rollback`), old config dropped, ack
+  `verified` with the time it took (`41s`).
+- Failed: `esp_ota_mark_app_invalid_rollback_and_reboot()`, or the old config written back and a
+  restart. The old firmware/config then sends `X-Ota-Result: rolled_back;<reason>;job=<id>` once.
+
+Reasons: `sensor_read_failed:<driver>`, `ingest_failed:<status>`, `server_unreachable` (5xx or no
+answer while WiFi works, the backend offers the job again later), `wifi_failed`, `timeout`,
+`config_invalid` (new config does not parse), `boot_failed` (crashed before the verdict: on the
+ESP32 the bootloader rolls back, on the ESP8266 the fourth unverified start restores the old config).
+
+Outputs (relays, LEDs) keep their last state over every restart: NVS on the ESP32 family, RTC memory
+on the ESP8266 (not over a power cut, then the start state from the config applies).
+
+## Signing
+
+The text signed per image (UTF-8, no newline):
+
+```
+hydronode-ota-v1|<version>|<family>|<sha256 hex lowercase>|<size>|<downgrade 0|1>
+```
+
+ECDSA P-256 over SHA-256, DER, Base64. The manifest carries it per image:
+`images.<family>.ota = {file, sha256, size, sig, keyId, downgrade}`. `file` is the bare app
+(`<family>-app.bin`), not the merged USB image. The firmware trusts the keys in `src/ota/OtaKeys.h`
+(a list, so keys can be rotated). The backend checks the same signature before it offers an image.
+
+### Release key on a YubiKey
+
+The private release key is created on the YubiKey (PIV slot 9c) and never leaves it.
+
+```bash
+python tools/package-release.py                       # after the CI build of the tag
+bash tools/sign-release.sh --key yubikey --pub prod.pub.pem --key-id prod-2026-10 [--slot 9c]
+```
+
+`yubico-piv-tool` asks for the PIN and signs on the key; every signature is verified with `--pub`
+before the manifest is written. SHA256SUMS and the release zip are rebuilt; `firmware.lock` in the
+backend then pins the new zip. Put the public key into `kReleaseKeys` before the first signed
+release. Until then release builds take no firmware over the air.
+
+### Dev key (local tests)
+
+```bash
+bash tools/dev-keys/make-dev-key.sh              # ota-dev.pem, .pub.pem, .pub.h (gitignored)
+pio run -e esp32c3-dev                           # trusts the dev key (-DHN_OTA_DEV_KEY)
+python tools/package-release.py
+bash tools/sign-release.sh --key tools/dev-keys/ota-dev.pem
+```
+
+## Limits
+
+- Images may use at most 85 % of the 1.75 MB slot (`tools/check-image-size.py`, also in CI).
+- The partition table and the bootloader never change over the air.
+- Anti-rollback through eFuses stays off.
