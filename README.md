@@ -6,7 +6,12 @@ device specific (sensors, outputs, pins, interval, sleep mode, WiFi, sensor cred
 a small config block in its own flash partition (`hncfg`, on the ESP8266 at `0x3F8000`).
 
 The HydroNode web app builds that block in your browser and flashes firmware and config
-over USB (Web Serial). The WiFi password never leaves the browser.
+over USB (Web Serial). The WiFi password never leaves the browser in readable form.
+
+From 0.5.0 on, that USB flash is the last one a board needs. The ESP32 family (ESP32, S2, S3, C3,
+C6) then takes signed firmware updates and config updates over the air from the HydroNode fleet
+view; the ESP8266 takes config updates. A board that fails its check after an update goes back
+to what it ran before by itself. See [Updates over the air](#updates-over-the-air).
 
 ## Layout
 
@@ -14,6 +19,7 @@ over USB (Web Serial). The WiFi password never leaves the browser.
 |---|---|
 | `src/` | firmware |
 | `src/actuators/` | relays, LEDs, switched outputs and buttons, driven by HydroNode commands |
+| `src/ota/` | updates over the air: offer checks, signed download, config merge, verify and rollback, trusted keys (`OtaKeys.h`) |
 | `src/scanner/` | I²C and 1-Wire scanner (`scan-*` environments), flashed from the wiring step |
 | `catalog/boards.json` | chip families, boards, pin rules, sleep modes per family |
 | `catalog/drivers.json` | supported sensors, buses, channels, options |
@@ -23,7 +29,10 @@ over USB (Web Serial). The WiFi password never leaves the browser.
 | `tools/validate-catalog.mjs` | consistency check, writes `dist/catalog.json` for the web app |
 | `tools/license-check.mjs` | license gate, writes `THIRD_PARTY_LICENSES.md` |
 | `tools/encode-config.mjs` | reference encoder for the config block |
-| `tools/package-release.py` | merged images, `manifest.json`, `SHA256SUMS`, release zip |
+| `tools/package-release.py` | merged images, bare app images for OTA, `manifest.json`, `SHA256SUMS`, release zip |
+| `tools/sign-release.sh` | signs every OTA image of a release (YubiKey or a PEM key), writes the `ota` blocks into the manifest |
+| `tools/dev-keys/` | local dev signing key for tests (`make-dev-key.sh`, keys gitignored) |
+| `tools/check-image-size.py` | fails when an image uses more than 85 % of its OTA slot |
 | `catalog/fixtures/` | golden config block shared with the web encoder |
 
 ## Build
@@ -31,14 +40,25 @@ over USB (Web Serial). The WiFi password never leaves the browser.
 ```bash
 pip install platformio
 pio run                      # all chip families plus the scanners
-pio test -e native           # host tests
+pio test -e native           # host tests (config, OTA logic)
+pio test -e native-ota       # OTA state machine and measurement loop on simulated hardware
 node tools/validate-catalog.mjs --out dist
 node tools/license-check.mjs --out dist/THIRD_PARTY_LICENSES.md
 python tools/package-release.py   # merged images + manifest.json → dist/
 ```
 
 A release tag `vX.Y.Z` (must match `version` in `platformio.ini`) runs the same steps in
-CI and publishes `hydronode-firmware-X.Y.Z.zip` plus the Arduino core source.
+CI and publishes `hydronode-firmware-X.Y.Z.zip` plus the Arduino core source. The OTA images are
+signed afterwards, locally, with the release key on the YubiKey (see [docs/OTA.md](docs/OTA.md)).
+
+For local OTA tests, build a firmware that trusts the dev key:
+
+```bash
+bash tools/dev-keys/make-dev-key.sh            # once, keys stay local
+pio run -e esp32c3-dev                         # also esp32-dev, esp32s3-dev
+python tools/package-release.py
+bash tools/sign-release.sh --key tools/dev-keys/ota-dev.pem
+```
 
 ## Serial status lines
 
@@ -66,9 +86,26 @@ sends its press right away and can toggle an output on the same board.
 ## Updates over the air
 
 From 0.5.0 on, the ESP32 family takes signed firmware updates over the air and every family, the
-ESP8266 included, takes config updates. New firmware or config has to prove itself in its first wake
-cycle (Strict or Lenient), otherwise the board goes back to what it ran before. Outputs keep their
-last state over a restart. Details, signing with the YubiKey and the local dev key: [docs/OTA.md](docs/OTA.md).
+ESP8266 included, takes config updates. Getting there takes one USB flash with the device builder;
+a board on an older version shows "needs USB once" in the fleet view.
+
+| | ESP32, S2, S3, C3, C6 | ESP8266 |
+|---|---|---|
+| Firmware over the air | yes, signed images only | no, no room for a second app slot |
+| Config over the air | yes | yes |
+
+- The update is offered in the reply to a sent value and taken after the round, so no reading is
+  lost. The board downloads the image itself, nothing reaches into its network.
+- Every image is signed with ECDSA P-256. The board checks the signature against the keys compiled
+  into the firmware before it writes a byte, and the SHA-256 while it writes.
+- New firmware or config has to prove itself in its first wake cycle (Strict or Lenient),
+  otherwise the board goes back to what it ran before and reports why.
+- WiFi and the sensor secret never travel with a config update. The board keeps its own.
+- Outputs keep their last state over a restart.
+- Release builds trust only the keys in `src/ota/OtaKeys.h`. Until the release key is entered there,
+  they take no firmware over the air (config updates still work).
+
+Details, the wire format, signing with the YubiKey and the local dev key: [docs/OTA.md](docs/OTA.md).
 
 ## Scanner
 

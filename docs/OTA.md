@@ -1,7 +1,8 @@
 # Updates over the air
 
 Firmware 0.5.0 and later update over the air. One USB flash with the device builder is needed to get
-there; after that the fleet view in HydroNode sends new firmware and new config to the board.
+there; after that the fleet view in HydroNode sends new firmware and new config to the board. The
+user guide is at <https://hydronode.tech/docs/features/fleet>.
 
 | | ESP32, S2, S3, C3, C6 | ESP8266 |
 |---|---|---|
@@ -66,6 +67,22 @@ ESP32 the bootloader rolls back, on the ESP8266 the fourth unverified start rest
 
 Outputs (relays, LEDs) keep their last state over every restart: NVS on the ESP32 family, RTC memory
 on the ESP8266 (not over a power cut, then the start state from the config applies).
+
+## What the server does
+
+The fleet view in HydroNode creates one job per board and change. In short, the backend:
+
+- An offer stands in every reply while the job is offered and counts once per round. A board that
+  does not take it within three rounds fails the job ("Offered 3 times, not taken").
+- A download without progress for 10 minutes is offered again. No report within three intervals
+  plus five minutes after the restart fails the job ("No report after restart").
+- A rollback with `server_unreachable`, `http_5xx` or `ingest_failed:5xx` is the server's fault: the
+  job is queued again, up to five times.
+- A job can be cancelled while it is queued or offered. The board only takes an offer the latest
+  reply still carries, so a cancelled job is never applied late.
+- After `verified`, or a report of the target version without `X-Ota-State`, the job is installed
+  and the saved setup follows the board (firmware version, config and revision).
+- One open job per board. Firmware and config in one change run as one job, firmware first.
 
 ## Signing
 
