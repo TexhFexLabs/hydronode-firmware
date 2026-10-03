@@ -52,10 +52,10 @@
 
 namespace hn {
 
-void Driver::fill(Reading* out, const char* q, float value, bool ok) const {
+void Driver::fill(Reading* out, const char* q, float value, bool ok, bool warming) const {
     for (uint8_t i = 0; i < cfg_.channelCount; i++) {
         if (strcmp(cfg_.channels[i].q, q) == 0) {
-            out[i] = {cfg_.channels[i].type, value, ok && isfinite(value)};
+            out[i] = {cfg_.channels[i].type, value, ok && isfinite(value), warming};
         }
     }
 }
@@ -354,6 +354,7 @@ public:
     bool begin() override {
         ok_ = sgp_.begin(bus_) && sgp_.IAQinit();
         started_ = millis();
+        measured_ = ok_;  // initialization already confirmed sensor communication
         return ok_;
     }
 
@@ -373,8 +374,9 @@ public:
     void read(Reading* out) override {
         // The first 15 s after IAQinit() report the fixed start values 400 ppm / 0 ppb.
         bool ok = ok_ && measured_ && millis() - started_ > 15000;
-        fill(out, "eco2", sgp_.eCO2, ok);
-        fill(out, "tvoc", sgp_.TVOC, ok);
+        bool warming = ok_ && measured_ && millis() - started_ <= 15000;
+        fill(out, "eco2", sgp_.eCO2, ok, warming);
+        fill(out, "tvoc", sgp_.TVOC, ok, warming);
     }
 
 private:
@@ -389,22 +391,33 @@ class Sgp40 : public Driver {
 public:
     Sgp40(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
 
-    bool begin() override { return ok_ = sgp_.begin(bus_); }
+    bool begin() override {
+        started_ = millis();
+        return sampled_ = ok_ = sgp_.begin(bus_);
+    }
 
     bool continuous() const override { return true; }
 
     void tick() override {
         if (!ok_) return;
         const Ambient& a = ambient();
-        voc_ = sgp_.measureVocIndex(isnan(a.t) ? 25.0f : a.t, isnan(a.rh) ? 50.0f : a.rh);
+        uint16_t raw = sgp_.measureRaw(isnan(a.t) ? 25.0f : a.t, isnan(a.rh) ? 50.0f : a.rh);
+        sampled_ = raw != 0;
+        if (sampled_) voc_ = algorithm_.process(raw);
     }
 
     // The VOC index is 0 while the algorithm learns the room (about the first 45 s).
-    void read(Reading* out) override { fill(out, "voc", voc_, ok_ && voc_ > 0); }
+    void read(Reading* out) override {
+        bool healthy = ok_ && sampled_;
+        fill(out, "voc", voc_, healthy && voc_ > 0, healthy && voc_ == 0 && millis() - started_ < 60000);
+    }
 
 private:
     TwoWire* bus_;
     Adafruit_SGP40 sgp_;
+    VOCGasIndexAlgorithm algorithm_;
+    uint32_t started_ = 0;
+    bool sampled_ = false;
     int32_t voc_ = 0;
     bool ok_ = false;
 };
@@ -417,6 +430,8 @@ public:
         sgp_.begin(*bus_);
         uint16_t serial[3];
         ok_ = sgp_.getSerialNumber(serial) == 0;
+        sampled_ = ok_;
+        started_ = millis();
         conditioning_ = 10;  // seconds of NOx conditioning after power-up, per datasheet
         return ok_;
     }
@@ -429,10 +444,11 @@ public:
         uint16_t srawVoc = 0, srawNox = 0;
         if (conditioning_ > 0) {
             conditioning_--;
-            sgp_.executeConditioning(rhTicks(a.rh), tTicks(a.t), srawVoc);
+            sampled_ = sgp_.executeConditioning(rhTicks(a.rh), tTicks(a.t), srawVoc) == 0;
             return;
         }
-        if (sgp_.measureRawSignals(rhTicks(a.rh), tTicks(a.t), srawVoc, srawNox) == 0) {
+        sampled_ = sgp_.measureRawSignals(rhTicks(a.rh), tTicks(a.t), srawVoc, srawNox) == 0;
+        if (sampled_) {
             voc_ = vocAlgorithm_.process(srawVoc);
             nox_ = noxAlgorithm_.process(srawNox);
         }
@@ -440,8 +456,9 @@ public:
 
     // Both indices stay 0 while their algorithm learns (VOC ~45 s, NOx ~5 min).
     void read(Reading* out) override {
-        fill(out, "voc", voc_, ok_ && voc_ > 0);
-        fill(out, "nox", nox_, ok_ && nox_ > 0);
+        bool healthy = ok_ && sampled_;
+        fill(out, "voc", voc_, healthy && voc_ > 0, healthy && voc_ == 0 && millis() - started_ < 60000);
+        fill(out, "nox", nox_, healthy && nox_ > 0, healthy && nox_ == 0 && millis() - started_ < 360000);
     }
 
 private:
@@ -452,6 +469,8 @@ private:
     int32_t voc_ = 0;
     int32_t nox_ = 0;
     uint8_t conditioning_ = 0;
+    uint32_t started_ = 0;
+    bool sampled_ = false;
     bool ok_ = false;
 };
 

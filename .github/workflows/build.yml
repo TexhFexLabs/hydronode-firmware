@@ -34,7 +34,9 @@ jobs:
       - name: Install PlatformIO
         run: pip install platformio==6.2.0
       - name: Config parser tests
-        run: pio test -e native
+        run: pio test -e native && pio test -e native-ota
+      - name: Release signing regression
+        run: python tools/test-sign-release.py
 
   firmware:
     runs-on: ubuntu-latest
@@ -59,6 +61,8 @@ jobs:
         run: pip install platformio==6.2.0
       - name: Build
         run: pio run -e ${{ matrix.env }}
+      - name: Image fits 85 % of the OTA slot
+        run: python tools/check-image-size.py ${{ matrix.env }}
       - name: License gate
         run: node tools/license-check.mjs --env ${{ matrix.env }} --out dist/THIRD_PARTY_LICENSES.md
       - uses: actions/upload-artifact@v4

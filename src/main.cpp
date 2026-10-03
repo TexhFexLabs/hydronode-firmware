@@ -8,19 +8,16 @@
 #include <HydroNode.h>
 #include <Wire.h>
 
-#if defined(ESP8266)
-// No partition table on the ESP8266: the config lives in a fixed 8 KB area at the end of the
-// (unused) file system region of the 4 MB layout. The release manifest carries the same offset.
-constexpr uint32_t kConfigOffset8266 = 0x3F8000;
-#else
-#include <esp_partition.h>
+#if !defined(ESP8266)
 #include <soc/soc_caps.h>
 #endif
 
 #include "actuators/Actuators.h"
 #include "config/Config.h"
+#include "config/ConfigStore.h"
 #include "drivers/Driver.h"
 #include "net/Net.h"
+#include "ota/Ota.h"
 #include "power/Power.h"
 #include "status/Status.h"
 
@@ -28,9 +25,6 @@ using namespace hn;
 
 namespace {
 
-#if !defined(ESP8266)
-constexpr uint8_t kConfigSubtype = 0x40;
-#endif
 constexpr uint32_t kWifiTimeoutMs = 20000;
 constexpr uint32_t kNoConfigRepeatMs = 10000;
 
@@ -51,21 +45,10 @@ ParseResult configError = makeResult(ConfigError::Ok, "");
 ParseResult loadConfig() {
     // Heap, not .bss: the ESP32-S2 and the ESP8266 have no RAM to spare for a static 8 KB buffer.
     size_t len = kHeaderSize + kMaxPayload;
-#if !defined(ESP8266)
-    const esp_partition_t* part =
-        esp_partition_find_first(ESP_PARTITION_TYPE_DATA, esp_partition_subtype_t(kConfigSubtype), "hncfg");
-    if (!part) return makeResult(ConfigError::NoPartition, "hncfg");
-    if (part->size < len) len = part->size;
-#endif
     uint8_t* block = static_cast<uint8_t*>(malloc(len));
     if (!block) return makeResult(ConfigError::NoPartition, "memory");
-    ParseResult result = makeResult(ConfigError::NoPartition, "read");
-#if defined(ESP8266)
-    bool read = ESP.flashRead(kConfigOffset8266, reinterpret_cast<uint32_t*>(block), len);
-#else
-    bool read = esp_partition_read(part, 0, block, len) == ESP_OK;
-#endif
-    if (read) result = parseBlock(block, len, cfg);
+    ParseResult result = makeResult(ConfigError::NoPartition, "hncfg");
+    if (store::readConfigBlock(block, len)) result = parseBlock(block, len, cfg);
     memset(block, 0, len);  // the block holds the WiFi password
     free(block);
     return result;
@@ -95,6 +78,7 @@ void sendPresses() {
     for (const char* type = act::takePress(); type; type = act::takePress()) {
         if (!connectedForSend()) continue;  // no connection: the press still toggled locally
         int code = hydro->sendValue(type, 1);
+        ota::afterSend(code);
         status::line("SEND %s %d", type, code);
         hydro->closeConnection();
     }
@@ -205,9 +189,10 @@ void readDevice(uint8_t i, Reading readings[][kMaxChannels]) {
 
 // Reads every sensor that has a value due this round, then sends. Reading first keeps the radio
 // off while the sensors settle, which matters for self-heating DHT/SHT sensors too. A round with
-// nothing due does not connect at all.
-void measureAndSend() {
-    Reading readings[kMaxDevices][kMaxChannels];
+// nothing due does not connect at all. The report tells an update in verification how it went.
+ota::RoundReport measureAndSend() {
+    ota::RoundReport report{false, 0, nullptr};
+    Reading readings[kMaxDevices][kMaxChannels] = {};
     bool anyDue = false;
     for (uint8_t i = 0; i < cfg.deviceCount; i++) {
         anyDue = anyDue || (drivers[i] && deviceDue(i));
@@ -215,13 +200,15 @@ void measureAndSend() {
     }
     updateAmbient(readings);
     status::line("ROUND %lu", (unsigned long)roundIndex);
-    if (!anyDue) return;
+    if (!anyDue) return report;
 
-    if (!net::connected() && !net::connect(cfg, kWifiTimeoutMs)) return;
+    if (!net::connected() && !net::connect(cfg, kWifiTimeoutMs)) return report;
+    report.wifiOk = true;
     if (!hydro) {
         hydro = new HydroNode(cfg.sensorId, cfg.secret, cfg.host);
         hydro->begin();
         act::attach(*hydro);
+        ota::attach(*hydro, cfg);
     } else if (clockStopped) {
         clockStopped = !hydro->syncTime();
     }
@@ -230,25 +217,53 @@ void measureAndSend() {
         if (drivers[i] && drivers[i]->afterConnect()) readDevice(i, readings);
     }
 
+    // Drivers that failed this round travel with every value (X-Device-Status readErr=…).
+    hydro->clearReadErrors();
+    for (uint8_t i = 0; i < cfg.deviceCount; i++) {
+        for (uint8_t c = 0; c < cfg.devices[i].channelCount; c++) {
+            const Reading& r = readings[i][c];
+            if (!due(cfg.devices[i].channels[c]) || act::isActuator(cfg.devices[i].driver)) continue;
+            // Only confirmed communication with a warming algorithm is exempt. Missing drivers
+            // and failed gas sensor initialization must block Strict verification too.
+            if (!r.ok && !r.warming) {
+                hydro->reportReadError(cfg.devices[i].driver);
+                if (!report.failedDriver) report.failedDriver = cfg.devices[i].driver;
+            }
+        }
+    }
+
     for (uint8_t i = 0; i < cfg.deviceCount; i++) {
         for (uint8_t c = 0; c < cfg.devices[i].channelCount; c++) {
             const Reading& r = readings[i][c];
             if (!r.type || !due(cfg.devices[i].channels[c])) continue;
             if (!r.ok) {
-                // A gas sensor still learning its baseline is not a wiring problem.
-                bool settling = drivers[i] && drivers[i]->continuous();
+                bool settling = r.warming;
                 status::line("%s SENSOR %s %s", settling ? "WAIT" : "ERR", cfg.devices[i].driver,
                              cfg.devices[i].channels[c].type);
                 continue;
             }
             int code = hydro->sendValue(r.type, r.value);
+            ota::afterSend(code);
             status::line("SEND %s %d", r.type, code);
             if (code == 401 || code == 403) status::line("ERR AUTH %d", code);
+            if (code >= 200 && code < 300) report.bestStatus = code;
+            else if (report.bestStatus < 200 || report.bestStatus >= 300) report.bestStatus = code;
             act::service();  // a command in the answer may have started a short pulse
         }
     }
     // All values of a round share one TLS connection; do not hold its buffers until the next.
     hydro->closeConnection();
+    return report;
+}
+
+// One round, and again while an update in verification asks for another try. Afterwards a
+// waiting update offer is carried out (it may restart the board).
+void runRound() {
+    ota::RoundReport report = measureAndSend();
+    while (ota::afterRound(hydro, cfg, report)) {
+        idle(ota::kRetryPauseMs);
+        report = measureAndSend();
+    }
 }
 
 // Milliseconds until the next round should start. With internet time from the last send, rounds
@@ -283,6 +298,8 @@ void setup() {
 
     configError = loadConfig();
     configOk = configError.error == ConfigError::Ok;
+    // An update waiting for its verdict; a new config that does not parse goes back to the old one.
+    ota::begin(cfg, configError);
     if (!configOk) {
         printConfigError();
         return;
@@ -293,8 +310,8 @@ void setup() {
     power::Rounds rounds = power::loadRounds(!woken);
     roundIndex = rounds.index;
     anchorMs = rounds.anchorMs;
-    status::line("CFG ok board=%s devices=%u mode=%s interval=%lu", cfg.board, cfg.deviceCount,
-                 sleepModeName(cfg.mode), (unsigned long)cfg.intervalSeconds);
+    status::line("CFG ok board=%s devices=%u mode=%s interval=%lu rev=%lu", cfg.board, cfg.deviceCount,
+                 sleepModeName(cfg.mode), (unsigned long)cfg.intervalSeconds, (unsigned long)cfg.rev);
 
     act::begin(cfg);
     // After a timer wake-up the sensors stayed powered unless a power pin switched them off.
@@ -312,7 +329,7 @@ void loop() {
         return;
     }
 
-    measureAndSend();
+    runRound();
     roundIndex++;
 
     switch (cfg.mode) {

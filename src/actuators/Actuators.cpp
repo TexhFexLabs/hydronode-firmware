@@ -5,6 +5,7 @@
 #include <string.h>
 
 #if !defined(ESP8266)
+#include <Preferences.h>
 #include <driver/gpio.h>
 #endif
 
@@ -42,7 +43,17 @@ struct Button {
     uint8_t queued;   // presses not sent yet
 };
 
+// The last state of every output survives a restart (an update, a crash, the watchdog): a vent
+// relay that was on is on again before the first round. ESP32 family: NVS, written only when the
+// state changes. ESP8266: RTC memory (slots 64..72), which survives a restart but not a power cut;
+// then the start state from the config applies.
+#if defined(ESP8266)
+constexpr uint32_t kRtcOutSlot = 64;
+constexpr uint32_t kRtcOutMagic = 0x484E4F55;  // "HNOU"
+#endif
+
 Output outputs[kMaxDevices];
+uint32_t savedState[kMaxDevices];  // last value written per output, to skip unchanged writes
 uint8_t outputCount = 0;
 Button buttons[kMaxDevices];
 uint8_t buttonCount = 0;
@@ -50,6 +61,61 @@ uint8_t buttonCount = 0;
 bool isOutput(const char* driver) {
     return strcmp(driver, "relay") == 0 || strcmp(driver, "led") == 0 || strcmp(driver, "output") == 0;
 }
+
+uint16_t nameHash(const char* name) {
+    uint32_t h = 2166136261u;
+    for (const char* c = name; c && *c; c++) h = (h ^ uint8_t(*c)) * 16777619u;
+    return uint16_t(h ^ (h >> 16));
+}
+
+// Name hash, level and on/off in one word: a slot only restores the output it was written for.
+uint32_t packState(const Output& o) {
+    return (uint32_t(nameHash(o.dev->text("cmd", o.dev->driver))) << 16) | (uint32_t(o.level) << 8) | (o.on ? 1 : 0);
+}
+
+void remember(uint8_t index) {
+    if (index >= outputCount) return;
+    uint32_t value = packState(outputs[index]);
+    if (value == savedState[index]) return;
+    savedState[index] = value;
+#if defined(ESP8266)
+    uint32_t magic = kRtcOutMagic;
+    ESP.rtcUserMemoryWrite(kRtcOutSlot, &magic, sizeof(magic));
+    ESP.rtcUserMemoryWrite(kRtcOutSlot + 1 + index, &value, sizeof(value));
+#else
+    Preferences prefs;
+    if (prefs.begin("hn-out", false)) {
+        char key[6];
+        snprintf(key, sizeof(key), "o%u", unsigned(index));
+        prefs.putUInt(key, value);
+        prefs.end();
+    }
+#endif
+}
+
+// The stored state of output `index`, when it belongs to this output.
+bool recall(uint8_t index, const Output& o, bool& on, uint8_t& level) {
+#if defined(ESP8266)
+    uint32_t magic = 0;
+    uint32_t value = 0;
+    ESP.rtcUserMemoryRead(kRtcOutSlot, &magic, sizeof(magic));
+    if (magic != kRtcOutMagic) return false;
+    ESP.rtcUserMemoryRead(kRtcOutSlot + 1 + index, &value, sizeof(value));
+#else
+    Preferences prefs;
+    if (!prefs.begin("hn-out", true)) return false;
+    char key[6];
+    snprintf(key, sizeof(key), "o%u", unsigned(index));
+    uint32_t value = prefs.getUInt(key, 0);
+    prefs.end();
+#endif
+    if (value == 0 || (value >> 16) != nameHash(o.dev->text("cmd", o.dev->driver))) return false;
+    on = (value & 1) != 0;
+    level = uint8_t(value >> 8);
+    return true;
+}
+
+uint8_t indexOf(const Output& o) { return uint8_t(&o - outputs); }
 
 void apply(Output& o) {
     if (o.dim) {
@@ -64,6 +130,7 @@ void set(Output& o, bool on) {
     o.pulsing = false;
     o.on = on;
     apply(o);
+    remember(indexOf(o));
     status::line("OUT %s %s", o.dev->text("cmd", o.dev->driver), on ? "on" : "off");
 }
 
@@ -77,6 +144,10 @@ void pulse(Output& o, uint32_t ms) {
     o.pulsing = true;
     o.offAt = millis() + ms;
     apply(o);
+    // A pulse does not outlive a restart: remembered as off.
+    o.on = false;
+    remember(indexOf(o));
+    o.on = true;
     status::line("OUT %s on %lums", o.dev->text("cmd", o.dev->driver), (unsigned long)ms);
 }
 
@@ -110,6 +181,10 @@ void begin(const Config& cfg) {
             o.dim = strcmp(dev.driver, "led") == 0 && dev.number("dim", 0) != 0;
             o.level = 255;
             o.on = strcmp(dev.text("start", "OFF"), "ON") == 0;
+            uint8_t index = uint8_t(outputCount - 1);
+            savedState[index] = 0;
+            bool restored = recall(index, o, o.on, o.level);
+            if (restored) savedState[index] = packState(o);
 #if !defined(ESP8266)
             gpio_hold_dis(gpio_num_t(o.pin));
 #endif
@@ -117,7 +192,8 @@ void begin(const Config& cfg) {
             if (!o.dim) digitalWrite(o.pin, o.on != o.activeLow ? HIGH : LOW);
             pinMode(o.pin, OUTPUT);
             apply(o);
-            status::line("OUT %s %s pin=%d", dev.text("cmd", dev.driver), o.on ? "on" : "off", dev.pin);
+            status::line("OUT %s %s pin=%d%s", dev.text("cmd", dev.driver), o.on ? "on" : "off", dev.pin,
+                         restored ? " restored" : "");
         } else if (strcmp(dev.driver, "button") == 0) {
             Button& b = buttons[buttonCount++];
             b = {};
