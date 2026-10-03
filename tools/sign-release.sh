@@ -34,6 +34,8 @@ done
 version="$(sed -n 's/^version = //p' "$root/platformio.ini")"
 manifest="${manifest:-$root/dist/release/$version/manifest.json}"
 [[ -f "$manifest" ]] || { echo "no manifest at $manifest, run tools/package-release.py first" >&2; exit 1; }
+# The chosen release may differ from the current checkout. Sign its version.
+version="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$manifest")"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT

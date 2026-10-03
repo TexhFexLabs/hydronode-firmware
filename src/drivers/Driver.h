@@ -12,6 +12,7 @@ struct Reading {
     const char* type;
     float value;
     bool ok;
+    bool warming = false;  // valid sensor communication, algorithm not ready yet
 };
 
 class Driver {
@@ -41,7 +42,7 @@ public:
 
     // Maps a channel quantity key to a value produced by the driver. Channels the user removed
     // are simply not filled.
-    void fill(Reading* out, const char* q, float value, bool ok) const;
+    void fill(Reading* out, const char* q, float value, bool ok, bool warming = false) const;
 
 protected:
     const DeviceConfig& cfg_;

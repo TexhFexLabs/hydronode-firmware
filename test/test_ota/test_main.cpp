@@ -112,6 +112,10 @@ void test_verify_server_errors_and_time() {
     d = decideVerify(input(VerifyMode::Strict, 3, -3, nullptr));
     TEST_ASSERT_EQUAL(int(VerifyStep::RollBack), int(d.step));
     TEST_ASSERT_EQUAL_STRING("server_unreachable", d.reason);
+    // A late successful ingest must also fail the deadline.
+    d = decideVerify(input(VerifyMode::Lenient, 1, 202, nullptr, 120000));
+    TEST_ASSERT_EQUAL(int(VerifyStep::RollBack), int(d.step));
+    TEST_ASSERT_EQUAL_STRING("timeout", d.reason);
     // Out of time before the third try.
     d = decideVerify(input(VerifyMode::Strict, 2, 202, "ds18b20", 125000));
     TEST_ASSERT_EQUAL(int(VerifyStep::RollBack), int(d.step));

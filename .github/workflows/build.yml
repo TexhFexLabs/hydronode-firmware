@@ -34,7 +34,9 @@ jobs:
       - name: Install PlatformIO
         run: pip install platformio==6.2.0
       - name: Config parser tests
-        run: pio test -e native
+        run: pio test -e native && pio test -e native-ota
+      - name: Release signing regression
+        run: python tools/test-sign-release.py
 
   firmware:
     runs-on: ubuntu-latest

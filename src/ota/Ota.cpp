@@ -3,10 +3,12 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <HydroNode.h>
+#include <Ticker.h>
 #include <string.h>
 
 #include <new>
 
+#include "actuators/Actuators.h"
 #include "ConfigMerge.h"
 #include "OtaLogic.h"
 #include "OtaStore.h"
@@ -31,7 +33,8 @@ namespace {
 
 enum class Phase : uint8_t { Idle, Verifying, Reporting };
 
-constexpr uint8_t kMaxUnverifiedBoots = 3;
+// A second start before confirmation restores the old config, including watchdog resets.
+constexpr uint8_t kMaxUnverifiedBoots = 1;
 #if defined(ESP8266)
 constexpr bool kFirmwareOta = false;
 #else
@@ -42,11 +45,13 @@ Phase phase = Phase::Idle;
 Pending pending{};
 uint8_t attempt = 0;
 uint32_t startedMs = 0;
+Ticker verificationDeadline;
 // An offer from the last answer, carried out after the round. Only one per answer.
 JsonDocument* offer = nullptr;
 bool offerIsFirmware = false;
 
 void copy(char* dst, size_t cap, const char* src) {
+    if (dst == src) return;
     strncpy(dst, src ? src : "", cap - 1);
     dst[cap - 1] = '\0';
 }
@@ -66,16 +71,22 @@ bool restoreBackup() {
     bool ok = len > 0 && store::writeConfigBlock(block, len);
     memset(block, 0, store::kBlockSize);
     free(block);
-    if (ok) clearBackup();
     return ok;
 }
 
 // Config update failed: back to the old block, remember why, start over with it.
 [[noreturn]] void rollBackConfig(const char* reason) {
     status::line("OTA rollback config %s", reason);
+    verificationDeadline.detach();
     copy(pending.result, sizeof(pending.result), reason);
+    pending.reserved = 1;  // restoring; resume even if reset interrupts the flash write
     savePending(pending);
-    if (!restoreBackup()) status::line("ERR OTA no_backup");
+    if (restoreBackup()) {
+        pending.reserved = 2;  // restored; keep the backup until the result is reported
+        savePending(pending);
+    } else {
+        status::line("ERR OTA no_backup");
+    }
     restart();
 }
 
@@ -261,8 +272,7 @@ void handleConfigOffer(HydroNode& hydro, const Config& cfg, JsonObjectConst o) {
             failure = "no_space";
         } else if (!store::writeConfigBlock(newBlock, newLen)) {
             // Half written is worse than old: put the old block back.
-            store::writeConfigBlock(oldBlock, oldLen);
-            clearPending();
+            // Keep both the pending record and backup. Recovery runs after buffers are freed.
             failure = "write_failed";
         }
     }
@@ -279,6 +289,7 @@ void handleConfigOffer(HydroNode& hydro, const Config& cfg, JsonObjectConst o) {
         delete scratch;
     }
     if (failure) {
+        if (strcmp(failure, "write_failed") == 0) rollBackConfig(failure);
         clearBackup();
         ack(hydro, job, "failed", failure);
         return;
@@ -292,6 +303,11 @@ void handleConfigOffer(HydroNode& hydro, const Config& cfg, JsonObjectConst o) {
 }  // namespace
 
 void begin(const Config& cfg, const ParseResult& configResult) {
+    dropOffer();
+    verificationDeadline.detach();
+    phase = Phase::Idle;
+    attempt = 0;
+    pending = Pending{};
     startedMs = millis();
     bool havePending = loadPending(pending);
 #if !defined(ESP8266)
@@ -304,13 +320,38 @@ void begin(const Config& cfg, const ParseResult& configResult) {
 #endif
 
     if (!havePending) {
+        // ESP8266 can lose an interrupted state-sector write. A valid backup is the recovery
+        // authority even when the pending record did not survive.
+        if (restoreBackup()) {
+            clearBackup();
+            restart();
+        }
 #if !defined(ESP8266)
         // New firmware that did not come from a HydroNode job: nothing to prove it against.
-        if (pendingVerify) esp_ota_mark_app_valid_cancel_rollback();
+        if (pendingVerify) {
+            if (configResult.error != ConfigError::Ok) {
+                esp_ota_mark_app_invalid_rollback_and_reboot();
+                restart();
+            }
+            esp_ota_mark_app_valid_cancel_rollback();
+        }
 #endif
         return;
     }
+    if (pending.kind == PendingKind::Config && pending.reserved == 3) {
+        // Confirmation survived, but a reset may have interrupted backup/record cleanup.
+        if (configResult.error != ConfigError::Ok || cfg.rev != pending.toRev) {
+            rollBackConfig("config_invalid");
+        }
+        clearBackup();
+        clearPending();
+        return;
+    }
     if (pending.result[0]) {
+        if (pending.kind == PendingKind::Config &&
+            (pending.reserved != 2 || configResult.error != ConfigError::Ok || cfg.rev != pending.fromRev)) {
+            rollBackConfig(pending.result);
+        }
         phase = Phase::Reporting;
         status::line("OTA rolled back %s", pending.result);
         return;
@@ -319,6 +360,14 @@ void begin(const Config& cfg, const ParseResult& configResult) {
     if (pending.kind == PendingKind::Firmware) {
         bool isNew = strcmp(HN_FW_VERSION, pending.toVersion) == 0;
         if (isNew && pendingVerify) {
+            if (configResult.error != ConfigError::Ok) {
+                copy(pending.result, sizeof(pending.result), "config_invalid");
+                savePending(pending);
+#if !defined(ESP8266)
+                esp_ota_mark_app_invalid_rollback_and_reboot();
+#endif
+                restart();
+            }
             phase = Phase::Verifying;
         } else if (!isNew) {
             // Back on the old firmware without a verdict: the new one never got that far.
@@ -333,6 +382,8 @@ void begin(const Config& cfg, const ParseResult& configResult) {
         }
     } else if (pending.kind == PendingKind::Config) {
         if (configResult.error != ConfigError::Ok) rollBackConfig("config_invalid");
+        // A reset between saving pending and writing flash can leave the old config intact.
+        if (cfg.rev != pending.toRev) rollBackConfig("write_failed");
         phase = Phase::Verifying;
     } else {
         clearPending();
@@ -344,6 +395,9 @@ void begin(const Config& cfg, const ParseResult& configResult) {
         if (pending.kind == PendingKind::Config) rollBackConfig("boot_failed");
     }
     savePending(pending);
+    // The timer also cuts off a blocked DNS/TLS/HTTP or driver call. Restarting an unconfirmed
+    // app invokes bootloader rollback; an unconfirmed config is restored at the next boot.
+    verificationDeadline.once_ms(kVerifyLimitMs, []() { ESP.restart(); });
     status::line("OTA verify %s %s r%lu", pending.kind == PendingKind::Firmware ? "firmware" : "config",
                  verifyModeName(VerifyMode(pending.mode)), (unsigned long)cfg.rev);
 }
@@ -372,6 +426,7 @@ bool afterRound(HydroNode* hydro, const Config& cfg, const RoundReport& report) 
     if (phase == Phase::Reporting) {
         if (hydro && delivered) {
             hydro->clearExtraHeader("X-Ota-Result");
+            if (pending.kind == PendingKind::Config) clearBackup();
             clearPending();
             phase = Phase::Idle;
         }
@@ -385,6 +440,7 @@ bool afterRound(HydroNode* hydro, const Config& cfg, const RoundReport& report) 
             return true;
         }
         if (d.step == VerifyStep::RollBack) {
+            verificationDeadline.detach();
             if (pending.kind == PendingKind::Config) rollBackConfig(d.reason);
 #if !defined(ESP8266)
             status::line("OTA rollback firmware %s", d.reason);
@@ -398,6 +454,15 @@ bool afterRound(HydroNode* hydro, const Config& cfg, const RoundReport& report) 
 #endif
             return false;
         }
+        if (pending.kind == PendingKind::Config) {
+            pending.reserved = 3;  // persist confirmation before removing any recovery data
+            if (!savePending(pending)) {
+                pending.reserved = 0;
+                status::line("ERR OTA confirm_not_saved");
+                return true;
+            }
+        }
+        verificationDeadline.detach();
         // Verified.
 #if !defined(ESP8266)
         if (pending.kind == PendingKind::Firmware) esp_ota_mark_app_valid_cancel_rollback();
@@ -416,6 +481,9 @@ bool afterRound(HydroNode* hydro, const Config& cfg, const RoundReport& report) 
     }
 
     if (offer && hydro && phase == Phase::Idle) {
+        // Do not start a blocking download while a timed output still needs its off deadline.
+        // idle() keeps servicing it. The offer can be taken after the next round.
+        if (act::pendingMs() > 0) return false;
         JsonObjectConst o = offer->as<JsonObjectConst>();
         bool firmware = offerIsFirmware;
 #if !defined(ESP8266)

@@ -108,3 +108,25 @@ bash tools/sign-release.sh --key tools/dev-keys/ota-dev.pem
 - Images may use at most 85 % of the 1.75 MB slot (`tools/check-image-size.py`, also in CI).
 - The partition table and the bootloader never change over the air.
 - Anti-rollback through eFuses stays off.
+
+## Recovery and verification checks
+
+The device defers a blocking update while a timed output is active. Normal rounds still service
+its off deadline. The offer is taken after a later round when all timed outputs have finished.
+
+A config rollback records restoration in progress before writing flash. The backup stays until
+restoration succeeds and its result reaches HydroNode. A reset during restoration resumes it at
+boot. The loaded revision must match the offered revision before it can be confirmed.
+Confirmation is saved before backup cleanup, so a reset during cleanup keeps the verified config.
+A missing ESP8266 state record also restores a surviving backup. Any second boot before
+config confirmation restores the old config.
+
+Strict verification distinguishes a gas algorithm warming up from failed sensor communication.
+Failed initialization, failed raw samples and missing drivers block confirmation. A two-minute
+timer restarts a stalled verification even when a driver or network call does not return.
+The next boot rolls back unconfirmed firmware or restores unconfirmed config. A timer reset is
+reported as `boot_failed` when no more specific verdict could be saved.
+
+Run `pio test -e native-ota` to exercise the real OTA state machine and measurement loop against
+simulated flash, resets and network responses. Run `python tools/test-sign-release.py` to verify
+that signing an explicit manifest uses that release's version.

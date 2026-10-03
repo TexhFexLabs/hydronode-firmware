@@ -15,7 +15,7 @@ struct Pending {
     PendingKind kind;
     uint8_t mode;          // VerifyMode
     uint8_t boots;         // starts of the new firmware/config without verification
-    uint8_t reserved;
+    uint8_t reserved;      // config stage: 0 verifying, 1 restoring, 2 restored, 3 confirmed
     char job[40];
     char fromVersion[16];
     char toVersion[16];

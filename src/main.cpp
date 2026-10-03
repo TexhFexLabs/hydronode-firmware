@@ -191,7 +191,7 @@ void readDevice(uint8_t i, Reading readings[][kMaxChannels]) {
 // nothing due does not connect at all. The report tells an update in verification how it went.
 ota::RoundReport measureAndSend() {
     ota::RoundReport report{false, 0, nullptr};
-    Reading readings[kMaxDevices][kMaxChannels];
+    Reading readings[kMaxDevices][kMaxChannels] = {};
     bool anyDue = false;
     for (uint8_t i = 0; i < cfg.deviceCount; i++) {
         anyDue = anyDue || (drivers[i] && deviceDue(i));
@@ -221,9 +221,10 @@ ota::RoundReport measureAndSend() {
     for (uint8_t i = 0; i < cfg.deviceCount; i++) {
         for (uint8_t c = 0; c < cfg.devices[i].channelCount; c++) {
             const Reading& r = readings[i][c];
-            if (!r.type || !due(cfg.devices[i].channels[c])) continue;
-            // A gas sensor still learning its baseline is not a wiring problem.
-            if (!r.ok && !(drivers[i] && drivers[i]->continuous())) {
+            if (!due(cfg.devices[i].channels[c]) || act::isActuator(cfg.devices[i].driver)) continue;
+            // Only confirmed communication with a warming algorithm is exempt. Missing drivers
+            // and failed gas sensor initialization must block Strict verification too.
+            if (!r.ok && !r.warming) {
                 hydro->reportReadError(cfg.devices[i].driver);
                 if (!report.failedDriver) report.failedDriver = cfg.devices[i].driver;
             }
@@ -235,7 +236,7 @@ ota::RoundReport measureAndSend() {
             const Reading& r = readings[i][c];
             if (!r.type || !due(cfg.devices[i].channels[c])) continue;
             if (!r.ok) {
-                bool settling = drivers[i] && drivers[i]->continuous();
+                bool settling = r.warming;
                 status::line("%s SENSOR %s %s", settling ? "WAIT" : "ERR", cfg.devices[i].driver,
                              cfg.devices[i].channels[c].type);
                 continue;

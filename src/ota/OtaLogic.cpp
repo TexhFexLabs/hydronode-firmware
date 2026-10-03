@@ -75,6 +75,11 @@ const char* checkFirmwareOffer(const FirmwareOffer& offer, const char* ownFamily
 
 VerifyDecision decideVerify(const VerifyInput& in) {
     VerifyDecision d{VerifyStep::Verified, ""};
+    if (in.elapsedMs >= kVerifyLimitMs) {
+        d.step = VerifyStep::RollBack;
+        copy(d.reason, sizeof(d.reason), "timeout");
+        return d;
+    }
     if (!in.wifiOk) {
         copy(d.reason, sizeof(d.reason), "wifi_failed");
     } else if (in.ingestStatus <= 0 || in.ingestStatus >= 500) {
