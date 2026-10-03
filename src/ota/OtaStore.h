@@ -7,6 +7,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "OtaLogic.h"
+
 namespace hn::ota {
 
 enum class PendingKind : uint8_t { None = 0, Firmware = 1, Config = 2 };
@@ -17,8 +19,10 @@ struct Pending {
     uint8_t boots;         // starts of the new firmware/config without verification
     uint8_t reserved;      // config stage: 0 verifying, 1 restoring, 2 restored, 3 confirmed
     char job[40];
-    char fromVersion[16];
-    char toVersion[16];
+    // Whole version names (up to kMaxVersionLength): a name cut short would never match the
+    // running version after the restart and look like a rollback.
+    char fromVersion[kMaxVersionLength + 1];
+    char toVersion[kMaxVersionLength + 1];
     uint32_t fromRev;
     uint32_t toRev;
     // Set when the update was rolled back: the reason the old firmware/config reports once in

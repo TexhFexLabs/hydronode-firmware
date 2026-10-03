@@ -68,7 +68,25 @@ void test_versions_compare_by_number() {
     TEST_ASSERT_TRUE(compareVersions("0.4.2", "0.5.0") < 0);
     TEST_ASSERT_TRUE(compareVersions("0.10.0", "0.9.9") > 0);
     TEST_ASSERT_EQUAL(0, compareVersions("0.5.0", "0.5.0"));
-    TEST_ASSERT_TRUE(compareVersions("1.0", "0.9.9") > 0);
+    TEST_ASSERT_EQUAL(0, compareVersions("v0.5.0", "0.5.0+build.7"));
+}
+
+// Same order as the backend's Semver.java (SemverTest): a pre-release is older than its release.
+void test_versions_compare_like_semver() {
+    TEST_ASSERT_TRUE(compareVersions("0.5.1-dev", "0.5.1") < 0);
+    TEST_ASSERT_TRUE(compareVersions("0.5.1", "0.5.1-dev") > 0);
+    TEST_ASSERT_TRUE(compareVersions("0.5.1-alpha", "0.5.1-alpha.1") < 0);
+    TEST_ASSERT_TRUE(compareVersions("0.5.1-alpha.1", "0.5.1-alpha.beta") < 0);
+    TEST_ASSERT_TRUE(compareVersions("0.5.1-beta.2", "0.5.1-beta.11") < 0);
+    TEST_ASSERT_TRUE(compareVersions("0.5.1-rc.1", "0.5.1-beta.11") > 0);
+    TEST_ASSERT_TRUE(compareVersions("0.5.0", "0.5.1-dev") < 0);
+    TEST_ASSERT_EQUAL(0, compareVersions("0.5.1-dev", "0.5.1-dev"));
+    // Not a version: below every real one, never "newer".
+    TEST_ASSERT_TRUE(compareVersions("1.0", "0.0.1") < 0);
+    TEST_ASSERT_TRUE(compareVersions("garbage", "0.0.1") < 0);
+    TEST_ASSERT_TRUE(compareVersions("0.0.1", "") > 0);
+    TEST_ASSERT_TRUE(compareVersions("0.5.1-", "0.5.0") < 0);
+    TEST_ASSERT_TRUE(compareVersions("1234567890.0.0", "0.0.1") < 0);
 }
 
 void test_offer_checks() {
@@ -87,6 +105,16 @@ void test_offer_checks() {
     TEST_ASSERT_EQUAL_STRING("bad_offer", checkFirmwareOffer(f, "esp32c3", "0.5.0", 0x1C0000));
     f = offer();
     f.sig = "";
+    TEST_ASSERT_EQUAL_STRING("bad_offer", checkFirmwareOffer(f, "esp32c3", "0.5.0", 0x1C0000));
+    // The release of a running pre-release is an update, not the same version.
+    TEST_ASSERT_NULL(checkFirmwareOffer(offer(), "esp32c3", "0.5.1-dev", 0x1C0000));
+    // Longest name the backend sends fits; one more character would be cut in the record.
+    std::string longest = "0.5.1-" + std::string(kMaxVersionLength - 6, 'a');
+    f = offer();
+    f.version = longest.c_str();
+    TEST_ASSERT_NULL(checkFirmwareOffer(f, "esp32c3", "0.5.0", 0x1C0000));
+    std::string tooLong = longest + "a";
+    f.version = tooLong.c_str();
     TEST_ASSERT_EQUAL_STRING("bad_offer", checkFirmwareOffer(f, "esp32c3", "0.5.0", 0x1C0000));
 }
 
@@ -198,6 +226,7 @@ int main(int, char**) {
     RUN_TEST(test_firmware_flags);
     RUN_TEST(test_signed_text);
     RUN_TEST(test_versions_compare_by_number);
+    RUN_TEST(test_versions_compare_like_semver);
     RUN_TEST(test_offer_checks);
     RUN_TEST(test_verify_strict_needs_every_sensor);
     RUN_TEST(test_verify_lenient_only_needs_the_ingest);

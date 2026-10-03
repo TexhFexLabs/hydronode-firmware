@@ -110,15 +110,53 @@ void test_blocked_call_is_cut_off_after_two_minutes() {
     restarted([] { ota::begin(cfg, makeResult(ConfigError::Ok, "")); });
     TEST_ASSERT_EQUAL_STRING("boot_failed", fake::record->result);
 }
+const char* kFirmwareOffer = R"({"job":"job","family":"esp32c3","version":"0.5.1","size":4,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sig":"sig","keyId":"dev","url":"/image"})";
+// One accepted answer of the server, with or without the offer in it.
+void reply(HydroNode& client, const char* offerJson) {
+    if (offerJson) {
+        JsonDocument offer;
+        deserializeJson(offer, offerJson);
+        client.handlers["ota"](offer.as<JsonVariantConst>());
+    }
+    ota::afterSend(202);
+}
 void test_offer_waits_until_timed_output_finished() {
     HydroNode client; ota::attach(client, cfg);
-    JsonDocument offer;
-    deserializeJson(offer, R"({"job":"job","family":"esp32c3","version":"0.5.1","size":4,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sig":"sig","keyId":"dev","url":"/image"})");
-    client.handlers["ota"](offer.as<JsonVariantConst>());
+    reply(client, kFirmwareOffer);
     fake::pulseLeft = 1400;
     ota::afterRound(&client,cfg,{true,202,nullptr});
     TEST_ASSERT_EQUAL(0,downloadedImages);
     fake::pulseLeft = 0;
+    // Still open: the next round's answer carries it again, then it runs.
+    reply(client, kFirmwareOffer);
+    restarted([&] { ota::afterRound(&client,cfg,{true,202,nullptr}); });
+    TEST_ASSERT_EQUAL(1,downloadedImages);
+}
+void test_offer_cancelled_during_pulse_is_never_carried_out() {
+    HydroNode client; ota::attach(client, cfg);
+    reply(client, kFirmwareOffer);
+    fake::pulseLeft = 1400;
+    ota::afterRound(&client,cfg,{true,202,nullptr});
+    fake::pulseLeft = 0;
+    // Cancelled on the server: the next round's answers no longer carry it.
+    reply(client, nullptr);
+    ota::afterRound(&client,cfg,{true,202,nullptr});
+    TEST_ASSERT_EQUAL(0,downloadedImages);
+    // Nor does a round without any answer bring the old offer back.
+    ota::afterRound(&client,cfg,{true,0,nullptr});
+    TEST_ASSERT_EQUAL(0,downloadedImages);
+    TEST_ASSERT_EQUAL(0,client.acks.size());
+}
+void test_later_answer_without_offer_drops_it_within_the_round() {
+    HydroNode client; ota::attach(client, cfg);
+    reply(client, kFirmwareOffer);
+    // Cancelled between two values of the same round.
+    reply(client, nullptr);
+    ota::afterRound(&client,cfg,{true,202,nullptr});
+    TEST_ASSERT_EQUAL(0,downloadedImages);
+    // A failed send says nothing about the job: an offer from this round's last answer stays.
+    reply(client, kFirmwareOffer);
+    ota::afterSend(503);
     restarted([&] { ota::afterRound(&client,cfg,{true,202,nullptr}); });
     TEST_ASSERT_EQUAL(1,downloadedImages);
 }
@@ -152,6 +190,8 @@ int main() {
     RUN_TEST(test_firmware_with_invalid_config_rolls_back_at_boot);
     RUN_TEST(test_blocked_call_is_cut_off_after_two_minutes);
     RUN_TEST(test_offer_waits_until_timed_output_finished);
+    RUN_TEST(test_offer_cancelled_during_pulse_is_never_carried_out);
+    RUN_TEST(test_later_answer_without_offer_drops_it_within_the_round);
     RUN_TEST(test_measurement_reports_broken_gas_and_missing_driver);
     return UNITY_END();
 }

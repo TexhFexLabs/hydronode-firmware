@@ -49,6 +49,9 @@ Ticker verificationDeadline;
 // An offer from the last answer, carried out after the round. Only one per answer.
 JsonDocument* offer = nullptr;
 bool offerIsFirmware = false;
+// The answer being handled carried an offer. The server repeats an open offer in every accepted
+// answer; one without it means the job was cancelled or moved on.
+bool offerInReply = false;
 
 void copy(char* dst, size_t cap, const char* src) {
     if (dst == src) return;
@@ -107,6 +110,7 @@ void storeOffer(JsonVariantConst value, bool firmware) {
     if (!offer) offer = new JsonDocument();
     offer->set(value);
     offerIsFirmware = firmware;
+    offerInReply = true;
 }
 
 void dropOffer() {
@@ -304,6 +308,7 @@ void handleConfigOffer(HydroNode& hydro, const Config& cfg, JsonObjectConst o) {
 
 void begin(const Config& cfg, const ParseResult& configResult) {
     dropOffer();
+    offerInReply = false;
     verificationDeadline.detach();
     phase = Phase::Idle;
     attempt = 0;
@@ -420,6 +425,13 @@ void attach(HydroNode& hydro, const Config& cfg) {
     hydro.onResponseKey("config", [](JsonVariantConst value) { storeOffer(value, false); });
 }
 
+void afterSend(int status) {
+    // 202 is an answer the library read; without an offer in it, the one kept from an earlier
+    // answer is stale. Other statuses say nothing about the job and keep it.
+    if (status == 202 && !offerInReply) dropOffer();
+    offerInReply = false;
+}
+
 bool afterRound(HydroNode* hydro, const Config& cfg, const RoundReport& report) {
     bool delivered = report.bestStatus >= 200 && report.bestStatus < 300;
 
@@ -482,8 +494,12 @@ bool afterRound(HydroNode* hydro, const Config& cfg, const RoundReport& report) 
 
     if (offer && hydro && phase == Phase::Idle) {
         // Do not start a blocking download while a timed output still needs its off deadline.
-        // idle() keeps servicing it. The offer can be taken after the next round.
-        if (act::pendingMs() > 0) return false;
+        // idle() keeps servicing it. The offer is not kept: the server sends it again with the
+        // next round while it is still open, and never again once it was cancelled.
+        if (act::pendingMs() > 0) {
+            dropOffer();
+            return false;
+        }
         JsonObjectConst o = offer->as<JsonObjectConst>();
         bool firmware = offerIsFirmware;
 #if !defined(ESP8266)

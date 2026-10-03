@@ -16,8 +16,14 @@ enum class VerifyMode : uint8_t { Strict, Lenient };
 VerifyMode parseVerifyMode(const char* name);
 const char* verifyModeName(VerifyMode mode);
 
-// Orders "0.4.2" < "0.5.0" < "0.10.0" by number. Negative when a is older.
+// Version order after semver 2.0, the same as the backend (Semver.java): numeric core, then a
+// pre-release ranks below its release ("0.5.1-dev" < "0.5.1"), build metadata is ignored. A
+// version that does not parse sorts below every valid one. Negative when a is older.
 int compareVersions(const char* a, const char* b);
+
+// Longest version name the backend sends (its columns hold 32 characters). Longer offers are
+// refused as bad_offer instead of being cut short in the update record.
+constexpr size_t kMaxVersionLength = 32;
 
 // The flags part of X-Firmware: "ota cfg=14" on boards that update firmware over the air,
 // "cfg=3" on the ESP8266 (config only).
@@ -44,7 +50,7 @@ struct FirmwareOffer {
 
 // Everything about an offer that can be checked before the signature: nullptr when it may go
 // ahead, otherwise the failure code sent with the ack (bad_offer, family_mismatch, same_version,
-// downgrade_not_allowed, no_space).
+// downgrade_not_allowed, no_space). A version longer than kMaxVersionLength is a bad_offer.
 const char* checkFirmwareOffer(const FirmwareOffer& offer, const char* ownFamily, const char* ownVersion,
                                uint32_t slotSize);
 

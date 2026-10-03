@@ -22,6 +22,10 @@ void begin(const Config& cfg, const ParseResult& configResult);
 // Call once the HydroNode client exists: firmware identity, update hooks, X-Ota-* headers.
 void attach(HydroNode& hydro, const Config& cfg);
 
+// Call after every sendValue() with its status. An accepted answer (202) without an offer drops
+// an offer kept from an earlier answer: only what the server still offers is carried out.
+void afterSend(int status);
+
 // What one round achieved, for the verification.
 struct RoundReport {
     bool wifiOk;

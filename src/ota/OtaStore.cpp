@@ -13,7 +13,9 @@ namespace hn::ota {
 
 namespace {
 
-constexpr uint32_t kMagic = 0x484E4F54;  // "HNOT"
+// "HNO2": the record with whole version names. A record of the older layout ("HNOT", shorter
+// version fields) does not load; 0.5.0 only ran on development boards.
+constexpr uint32_t kMagic = 0x484E4F32;
 
 struct Record {
     uint32_t magic;

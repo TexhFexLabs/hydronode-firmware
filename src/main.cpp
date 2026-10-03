@@ -78,6 +78,7 @@ void sendPresses() {
     for (const char* type = act::takePress(); type; type = act::takePress()) {
         if (!connectedForSend()) continue;  // no connection: the press still toggled locally
         int code = hydro->sendValue(type, 1);
+        ota::afterSend(code);
         status::line("SEND %s %d", type, code);
         hydro->closeConnection();
     }
@@ -242,6 +243,7 @@ ota::RoundReport measureAndSend() {
                 continue;
             }
             int code = hydro->sendValue(r.type, r.value);
+            ota::afterSend(code);
             status::line("SEND %s %d", r.type, code);
             if (code == 401 || code == 403) status::line("ERR AUTH %d", code);
             if (code >= 200 && code < 300) report.bestStatus = code;

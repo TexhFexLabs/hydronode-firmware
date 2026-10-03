@@ -25,6 +25,83 @@ bool isHex64(const char* s) {
 
 bool empty(const char* s) { return !s || !*s; }
 
+bool digit(char c) { return c >= '0' && c <= '9'; }
+
+bool identifierChar(char c) {
+    return digit(c) || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '.' || c == '-';
+}
+
+struct Version {
+    unsigned long core[3];
+    const char* pre;  // pre-release identifiers, not terminated
+    size_t preLen;    // 0: a release
+};
+
+// "v1.2.3-rc.1+build" → core 1.2.3, pre "rc.1". False for anything else, like the backend.
+bool parseVersion(const char* text, Version& out) {
+    if (!text) return false;
+    const char* p = text;
+    while (*p == ' ') p++;
+    if (*p == 'v') p++;
+    size_t len = strlen(p);
+    while (len > 0 && p[len - 1] == ' ') len--;
+    const char* plus = static_cast<const char*>(memchr(p, '+', len));
+    size_t end = plus ? size_t(plus - p) : len;
+    const char* dash = static_cast<const char*>(memchr(p, '-', end));
+    size_t coreEnd = dash ? size_t(dash - p) : end;
+    size_t i = 0;
+    for (int part = 0; part < 3; part++) {
+        size_t start = i;
+        unsigned long value = 0;
+        while (i < coreEnd && digit(p[i]) && i - start < 9) value = value * 10 + unsigned(p[i++] - '0');
+        if (i == start || (i < coreEnd && digit(p[i]))) return false;  // empty or longer than 9 digits
+        out.core[part] = value;
+        if (part < 2) {
+            if (i >= coreEnd || p[i] != '.') return false;
+            i++;
+        }
+    }
+    if (i != coreEnd) return false;
+    out.pre = nullptr;
+    out.preLen = 0;
+    if (dash) {
+        out.pre = dash + 1;
+        out.preLen = end - coreEnd - 1;
+        if (out.preLen == 0) return false;
+        for (size_t k = 0; k < out.preLen; k++) {
+            if (!identifierChar(out.pre[k])) return false;
+        }
+    }
+    return true;
+}
+
+bool numeric(const char* s, size_t len) {
+    if (len == 0) return false;
+    for (size_t i = 0; i < len; i++) {
+        if (!digit(s[i])) return false;
+    }
+    return true;
+}
+
+// Semver identifier order: numbers by value, numbers below text, text by ASCII.
+int compareIdentifier(const char* a, size_t lenA, const char* b, size_t lenB) {
+    bool na = numeric(a, lenA);
+    bool nb = numeric(b, lenB);
+    if (na && nb) {
+        while (lenA > 1 && *a == '0') a++, lenA--;
+        while (lenB > 1 && *b == '0') b++, lenB--;
+        if (lenA != lenB) return lenA < lenB ? -1 : 1;
+        int c = memcmp(a, b, lenA);
+        return c < 0 ? -1 : c > 0 ? 1 : 0;
+    }
+    if (na) return -1;
+    if (nb) return 1;
+    int c = memcmp(a, b, lenA < lenB ? lenA : lenB);
+    if (c != 0) return c < 0 ? -1 : 1;
+    if (lenA != lenB) return lenA < lenB ? -1 : 1;
+    return 0;
+}
+
 }  // namespace
 
 VerifyMode parseVerifyMode(const char* name) {
@@ -34,14 +111,39 @@ VerifyMode parseVerifyMode(const char* name) {
 const char* verifyModeName(VerifyMode mode) { return mode == VerifyMode::Lenient ? "INGEST" : "STRICT"; }
 
 int compareVersions(const char* a, const char* b) {
-    const char* pa = a ? a : "";
-    const char* pb = b ? b : "";
-    for (int part = 0; part < 3; part++) {
-        long na = strtol(pa, const_cast<char**>(&pa), 10);
-        long nb = strtol(pb, const_cast<char**>(&pb), 10);
-        if (na != nb) return na < nb ? -1 : 1;
-        if (*pa == '.') pa++;
-        if (*pb == '.') pb++;
+    Version va{};
+    Version vb{};
+    bool okA = parseVersion(a, va);
+    bool okB = parseVersion(b, vb);
+    if (!okA || !okB) {
+        if (!okA && !okB) return 0;
+        return okA ? 1 : -1;
+    }
+    for (int i = 0; i < 3; i++) {
+        if (va.core[i] != vb.core[i]) return va.core[i] < vb.core[i] ? -1 : 1;
+    }
+    if (va.preLen == 0 || vb.preLen == 0) {
+        if (va.preLen == 0 && vb.preLen == 0) return 0;
+        return va.preLen == 0 ? 1 : -1;  // the release ranks above its pre-releases
+    }
+    const char* pa = va.pre;
+    const char* pb = vb.pre;
+    const char* endA = va.pre + va.preLen;
+    const char* endB = vb.pre + vb.preLen;
+    while (pa < endA && pb < endB) {
+        const char* dotA = static_cast<const char*>(memchr(pa, '.', size_t(endA - pa)));
+        const char* dotB = static_cast<const char*>(memchr(pb, '.', size_t(endB - pb)));
+        size_t lenA = size_t((dotA ? dotA : endA) - pa);
+        size_t lenB = size_t((dotB ? dotB : endB) - pb);
+        int c = compareIdentifier(pa, lenA, pb, lenB);
+        if (c != 0) return c;
+        pa += lenA + (dotA ? 1 : 0);
+        pb += lenB + (dotB ? 1 : 0);
+        if (!dotA || !dotB) {
+            // One list ended: the shorter one ranks lower ("rc" < "rc.1").
+            if (!dotA && !dotB) return 0;
+            return dotA ? 1 : -1;
+        }
     }
     return 0;
 }
@@ -65,6 +167,7 @@ const char* checkFirmwareOffer(const FirmwareOffer& offer, const char* ownFamily
         !isHex64(offer.sha256)) {
         return "bad_offer";
     }
+    if (strlen(offer.version) > kMaxVersionLength) return "bad_offer";
     if (strcmp(offer.family, ownFamily) != 0) return "family_mismatch";
     int order = compareVersions(offer.version, ownVersion);
     if (order == 0) return "same_version";
