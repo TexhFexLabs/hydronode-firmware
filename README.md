@@ -102,8 +102,8 @@ a board on an older version shows "needs USB once" in the fleet view.
   otherwise the board goes back to what it ran before and reports why.
 - WiFi and the sensor secret never travel with a config update. The board keeps its own.
 - Outputs keep their last state over a restart.
-- Release builds trust only the keys in `src/ota/OtaKeys.h`. Until the release key is entered there,
-  they take no firmware over the air (config updates still work).
+- Release builds trust only the keys in `src/ota/OtaKeys.h`: the release key `prod-2026-10`
+  (`tools/release-keys/prod-2026-10.pub.pem`), which lives on a YubiKey.
 
 Details, the wire format, signing with the YubiKey and the local dev key: [docs/OTA.md](docs/OTA.md).
 

@@ -108,8 +108,9 @@ bash tools/sign-release.sh --key yubikey --pub prod.pub.pem --key-id prod-2026-1
 
 `yubico-piv-tool` asks for the PIN and signs on the key; every signature is verified with `--pub`
 before the manifest is written. SHA256SUMS and the release zip are rebuilt; `firmware.lock` in the
-backend then pins the new zip. Put the public key into `kReleaseKeys` before the first signed
-release. Until then release builds take no firmware over the air.
+backend then pins the new zip. The current release key is `prod-2026-10` (YubiKey PIV slot 9c,
+public key in `tools/release-keys/` and `kReleaseKeys`). A new key goes into `kReleaseKeys` in a
+release signed with the old one before the old one is retired.
 
 ### Dev key (local tests)
 

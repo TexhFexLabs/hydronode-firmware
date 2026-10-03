@@ -14,11 +14,14 @@ struct TrustedKey {
     const char* pem;
 };
 
-// Release keys. Empty until the YubiKey key is created: then a release build takes no firmware
-// over the air at all, which is the safe default.
+// Release keys. prod-2026-10: YubiKey 5C, PIV slot 9c, created 2026-10-03
+// (tools/release-keys/prod-2026-10.pub.pem). The private key never leaves the YubiKey.
 static const TrustedKey kReleaseKeys[] = {
-    // {"prod-2026-10", "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n"},
-    // YubiKey public key goes here.
+    {"prod-2026-10",
+     "-----BEGIN PUBLIC KEY-----\n"
+     "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE88gGpg45wbZmTXOQTTYidp6b1Dlt\n"
+     "BEeh3cSXjMWSx2OXX9HeUOJljW6zXMS2d7TXHvzMV61hdNkKhU6vQpTlYA==\n"
+     "-----END PUBLIC KEY-----\n"},
     {nullptr, nullptr},
 };
 
