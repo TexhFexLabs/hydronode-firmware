@@ -432,6 +432,8 @@ void afterSend(int status) {
     offerInReply = false;
 }
 
+bool busy() { return phase != Phase::Idle; }
+
 bool afterRound(HydroNode* hydro, const Config& cfg, const RoundReport& report) {
     bool delivered = report.bestStatus >= 200 && report.bestStatus < 300;
 

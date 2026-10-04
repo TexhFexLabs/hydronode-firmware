@@ -47,6 +47,9 @@ const char* reason(wl_status_t s) {
     }
 }
 
+const char* lastFailure = nullptr;
+uint32_t connectDurationMs = 0;
+
 bool waitConnected(uint32_t timeoutMs) {
     uint32_t start = millis();
     while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
@@ -96,8 +99,10 @@ bool connect(const Config& cfg, uint32_t timeoutMs) {
         ok = waitConnected(timeoutMs);
     }
 
+    connectDurationMs = millis() - start;
     if (!ok) {
-        status::line("ERR WIFI %s", reason(WiFi.status()));
+        lastFailure = reason(WiFi.status());
+        status::line("ERR WIFI %s", lastFailure);
         // Stop the attempt that is still running, else the next begin() fails with
         // "sta is connecting, cannot set config" and the following round starts from a dirty state.
         WiFi.disconnect(true);
@@ -125,6 +130,10 @@ void off() {
 }
 
 bool connected() { return WiFi.status() == WL_CONNECTED; }
+
+const char* lastError() { return lastFailure; }
+
+uint32_t lastConnectMs() { return connectDurationMs; }
 
 void setPowerSave(bool on) {
 #if defined(ESP8266)

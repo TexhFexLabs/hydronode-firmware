@@ -105,6 +105,10 @@ for (const [id, fam] of Object.entries(boards.families)) {
   for (const key of ['bootMs', 'wifiMs', 'wifiFastMs', 'connectMs', 'valueMs']) {
     if (!(fam.timing?.[key] > 0)) fail(`family ${id}: timing.${key} missing`);
   }
+  // Currents for the battery estimate in the web app: CPU awake, WiFi on, modem sleep, light sleep.
+  for (const key of ['cpuMa', 'wifiMa', 'modemMa', 'lightUa']) {
+    if (!(fam.current?.[key] > 0)) fail(`family ${id}: current.${key} missing`);
+  }
   // The parser's channel pool (kMaxTotalChannels in src/config/Config.h) must match.
   {
     const header = readFileSync(join(root, 'src/config/Config.h'), 'utf8');
@@ -152,6 +156,42 @@ for (const b of boards.boards) {
     }
   }
   if (!b.defaultPins) fail(`board ${b.id}: defaultPins missing`);
+  // Whole board in deep sleep (chip, regulator, USB chip, power LED), for the battery estimate.
+  if (!(b.sleepUa > 0)) fail(`board ${b.id}: sleepUa missing`);
+}
+
+// --- sleep rules -----------------------------------------------------------------
+// How a part behaves per power mode. Rules apply when every condition matches: `modes`, optional
+// `families`, and `when` (option values; `$pin`/`$pin2`/`$powerPin` whether that pin is wired;
+// `$channel` whether a value with that quantity is sent). `blocked` rules out the mode (with a
+// `fix`), `minFirmware` names the first firmware that runs it, `note` explains a trade-off,
+// `waitMs`/`sleepUa` replace the part's numbers in that mode. Firmware, backend and web app read
+// the same rules.
+const SLEEP_KEYS = ['modes', 'families', 'when', 'blocked', 'fix', 'minFirmware', 'note', 'waitMs', 'sleepUa'];
+function checkSleepRules(d) {
+  if (!Array.isArray(d.sleep)) return fail(`driver ${d.id}: sleep rules missing (use [] for none)`);
+  d.sleep.forEach((rule, i) => {
+    const at = `driver ${d.id}: sleep[${i}]`;
+    for (const key of Object.keys(rule)) if (!SLEEP_KEYS.includes(key)) fail(`${at}: unknown key ${key}`);
+    if (!rule.modes?.length || rule.modes.some((m) => !modeIds.has(m))) fail(`${at}: modes must name sleep modes`);
+    for (const f of rule.families ?? []) if (!boards.families[f]) fail(`${at}: unknown family ${f}`);
+    for (const [key, value] of Object.entries(rule.when ?? {})) {
+      if (key === '$channel') {
+        if (!d.channels.some((c) => c.q === value)) fail(`${at}: $channel ${value} is not a value of this part`);
+      } else if (key.startsWith('$')) {
+        if (!['$pin', '$pin2', '$powerPin'].includes(key) || typeof value !== 'boolean') fail(`${at}: unknown condition ${key}`);
+      } else {
+        const option = d.options.find((o) => o.key === key);
+        if (!option) fail(`${at}: when.${key} is not an option`);
+        else if (option.type === 'enum' && !option.values.includes(value)) fail(`${at}: when.${key} ${value} is not a value`);
+      }
+    }
+    if (rule.blocked && !rule.fix) fail(`${at}: a blocked mode says how to get around it (fix)`);
+    if (rule.blocked && (rule.minFirmware || rule.waitMs != null || rule.sleepUa != null)) fail(`${at}: a blocked rule only explains`);
+    if (!rule.blocked && !rule.minFirmware && !rule.note && rule.waitMs == null && rule.sleepUa == null) fail(`${at}: rule does nothing`);
+    if (rule.blocked && /\.$/.test(rule.blocked)) fail(`${at}: blocked ends a sentence after the part's name, no full stop`);
+    checkMinFirmware(at, rule.minFirmware);
+  });
 }
 
 // --- drivers --------------------------------------------------------------------
@@ -179,7 +219,17 @@ for (const d of drivers.drivers) {
   (d.pins ?? []).forEach((pin, i) => {
     if (pin.key !== ['pin', 'pin2'][i]) fail(`driver ${d.id}: pin ${i + 1} must have key ${['pin', 'pin2'][i] ?? '(none, at most two)'}`);
   });
-  if (!(d.readMs >= 0)) fail(`driver ${d.id}: readMs missing`);
+  // Timing per due round, the same numbers the firmware waits and the web app adds up.
+  for (const key of ['bootMs', 'powerUpMs', 'waitMs', 'readMs', 'sleepUa', 'activeMa']) {
+    if (!(d[key] >= 0)) fail(`driver ${d.id}: ${key} missing`);
+  }
+  for (const key of ['warmupMs', 'sleepSafe', 'continuous', 'requiresAwake']) {
+    if (key in d) fail(`driver ${d.id}: ${key} is replaced by the sleep rules`);
+  }
+  if ((d.pins ?? []).some((pin, i) => pin.optional && i === 0 && d.bus !== 'i2c')) {
+    fail(`driver ${d.id}: only a second pin, or the pin of an I²C part, can be optional`);
+  }
+  checkSleepRules(d);
   if (d.kind === 'output' ? d.channels.length !== 0 : d.channels.length === 0) {
     fail(`driver ${d.id}: ${d.kind === 'output' ? 'outputs send nothing' : 'needs at least one channel'}`);
   }
@@ -193,9 +243,6 @@ for (const d of drivers.drivers) {
   }
   for (const name of d.libs) if (!libByName.has(name)) fail(`driver ${d.id}: library ${name} missing in libraries.json`);
   // Sampling every second needs a running CPU; such a sensor can never be sleep safe.
-  if (d.continuous && d.sleepSafe) fail(`driver ${d.id}: continuous drivers cannot be sleepSafe`);
-  // Anything that rules out sleeping modes says why, in words the power step shows.
-  if ((d.continuous || d.kind) && !d.requiresAwake) fail(`driver ${d.id}: requiresAwake (the reason) missing`);
   checkMinFirmware(`driver ${d.id}`, d.minFirmware);
   if (d.options.length > 6) fail(`driver ${d.id}: at most 6 options (kMaxOptions in src/config/Config.h)`);
   for (const o of d.options) {

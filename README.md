@@ -21,8 +21,8 @@ to what it ran before by itself. See [Updates over the air](#updates-over-the-ai
 | `src/actuators/` | relays, LEDs, switched outputs and buttons, driven by HydroNode commands |
 | `src/ota/` | updates over the air: offer checks, signed download, config merge, verify and rollback, trusted keys (`OtaKeys.h`) |
 | `src/scanner/` | I²C and 1-Wire scanner (`scan-*` environments), flashed from the wiring step |
-| `catalog/boards.json` | chip families, boards, pin rules, sleep modes per family |
-| `catalog/drivers.json` | supported sensors, buses, channels, options, `minFirmware` for drivers newer than 0.5.0 |
+| `catalog/boards.json` | chip families, boards, pin rules, sleep modes, wake pins and currents per family, deep sleep current per board |
+| `catalog/drivers.json` | supported sensors, buses, channels, options, timing and currents, sleep rules per power mode ([docs/POWER.md](docs/POWER.md)), `minFirmware` for drivers newer than 0.5.0 |
 | `catalog/sleep-modes.json` | energy modes |
 | `catalog/libraries.json` | every bundled library with exact version and SPDX license |
 | `partitions/` | flash layout (`hncfg` at `0x390000`, 8 KB) |

@@ -14,6 +14,12 @@ void off();
 
 bool connected();
 
+// Why the last connect() failed (AUTH, NO_SSID, TIMEOUT, LOST), nullptr before any failure.
+const char* lastError();
+
+// How long the last connect() took, successful or not.
+uint32_t lastConnectMs();
+
 // Modem sleep (power save between beacons) or full power.
 void setPowerSave(bool on);
 

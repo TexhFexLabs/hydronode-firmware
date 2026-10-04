@@ -9,6 +9,7 @@
 #include <driver/gpio.h>
 #endif
 
+#include "power/Power.h"
 #include "status/Status.h"
 
 namespace hn::act {
@@ -185,12 +186,12 @@ void begin(const Config& cfg) {
             savedState[index] = 0;
             bool restored = recall(index, o, o.on, o.level);
             if (restored) savedState[index] = packState(o);
-#if !defined(ESP8266)
-            gpio_hold_dis(gpio_num_t(o.pin));
-#endif
-            // Level first, then output: an active-low relay must not click on during boot.
+            // Level first, then output, then the hold of the last deep sleep released: an
+            // active-low relay must not click during boot, nor when the board wakes up.
             if (!o.dim) digitalWrite(o.pin, o.on != o.activeLow ? HIGH : LOW);
             pinMode(o.pin, OUTPUT);
+            if (!o.dim) power::keepLevel(o.dev->pin);
+            power::releaseLevel(o.dev->pin);
             apply(o);
             status::line("OUT %s %s pin=%d%s", dev.text("cmd", dev.driver), o.on ? "on" : "off", dev.pin,
                          restored ? " restored" : "");
@@ -287,16 +288,34 @@ const char* takePress() {
     return nullptr;
 }
 
-void holdForSleep(bool hold) {
-#if !defined(ESP8266)
-    for (uint8_t i = 0; i < outputCount; i++) {
-        if (outputs[i].dim) continue;
-        if (hold) gpio_hold_en(gpio_num_t(outputs[i].pin));
-        else gpio_hold_dis(gpio_num_t(outputs[i].pin));
+uint8_t wakeInputs(power::WakeInput* out, uint8_t cap) {
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < buttonCount && n < cap; i++) {
+        out[n++] = {int8_t(buttons[i].pin), uint8_t(buttons[i].pressedLevel ? 1 : 0)};
     }
-#else
-    (void)hold;
-#endif
+    return n;
+}
+
+bool wakePress(int8_t pin) {
+    for (uint8_t i = 0; i < buttonCount; i++) {
+        Button& b = buttons[i];
+        if (b.pin != uint8_t(pin)) continue;
+        // The press woke the board; it may be over already. Counted once, like a debounced press.
+        status::line("BTN pin=%d pressed (wake)", b.pin);
+        if (b.target >= 0) set(outputs[b.target], !outputs[b.target].on);
+        if (b.type && b.queued < 255) b.queued++;
+        b.raw = b.pressed = digitalRead(b.pin) == (b.pressedLevel ? HIGH : LOW);
+        b.changedAt = millis();
+        return true;
+    }
+    return false;
+}
+
+bool hasPresses() {
+    for (uint8_t i = 0; i < buttonCount; i++) {
+        if (buttons[i].queued > 0) return true;
+    }
+    return false;
 }
 
 }  // namespace hn::act

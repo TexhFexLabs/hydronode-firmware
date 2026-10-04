@@ -168,15 +168,19 @@
         }
       ],
       "options": [],
-      "warmupMs": 10,
-      "sleepSafe": true,
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 750,
+      "readMs": 20,
+      "sleepUa": 1,
+      "activeMa": 1.5,
+      "sleep": [],
       "wiring": "Red to 3.3 V, black to GND, yellow to the data pin. 4.7 kΩ between yellow and 3.3 V.",
       "libs": [
         "OneWireNg",
         "DallasTemperature"
       ],
-      "esphome": "dallas_temp",
-      "readMs": 800
+      "esphome": "dallas_temp"
     },
     {
       "id": "dht",
@@ -222,15 +226,19 @@
           "default": "DHT22"
         }
       ],
-      "warmupMs": 1200,
-      "sleepSafe": true,
+      "bootMs": 0,
+      "powerUpMs": 1200,
+      "waitMs": 0,
+      "readMs": 30,
+      "sleepUa": 50,
+      "activeMa": 1.5,
+      "sleep": [],
       "wiring": "VCC to 3.3 V, GND to GND, DATA to the pin.",
       "libs": [
         "DHT sensor library",
         "Adafruit Unified Sensor"
       ],
-      "esphome": "dht",
-      "readMs": 300
+      "esphome": "dht"
     },
     {
       "id": "sht4x",
@@ -261,15 +269,19 @@
         }
       ],
       "options": [],
-      "warmupMs": 10,
-      "sleepSafe": true,
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 0,
+      "readMs": 10,
+      "sleepUa": 0.4,
+      "activeMa": 0.5,
+      "sleep": [],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus.",
       "libs": [
         "Sensirion I2C SHT4x",
         "Sensirion Core"
       ],
-      "esphome": "sht4x",
-      "readMs": 20
+      "esphome": "sht4x"
     },
     {
       "id": "sht3x",
@@ -299,15 +311,19 @@
         }
       ],
       "options": [],
-      "warmupMs": 10,
-      "sleepSafe": true,
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 0,
+      "readMs": 20,
+      "sleepUa": 0.2,
+      "activeMa": 0.8,
+      "sleep": [],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus.",
       "libs": [
         "Adafruit SHT31 Library",
         "Adafruit BusIO"
       ],
-      "esphome": "sht3xd",
-      "readMs": 20
+      "esphome": "sht3xd"
     },
     {
       "id": "aht",
@@ -336,16 +352,20 @@
         }
       ],
       "options": [],
-      "warmupMs": 40,
-      "sleepSafe": true,
+      "bootMs": 0,
+      "powerUpMs": 40,
+      "waitMs": 0,
+      "readMs": 90,
+      "sleepUa": 0.3,
+      "activeMa": 0.5,
+      "sleep": [],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus.",
       "libs": [
         "Adafruit AHTX0",
         "Adafruit Unified Sensor",
         "Adafruit BusIO"
       ],
-      "esphome": "aht10",
-      "readMs": 100
+      "esphome": "aht10"
     },
     {
       "id": "htu21d",
@@ -374,15 +394,19 @@
         }
       ],
       "options": [],
-      "warmupMs": 15,
-      "sleepSafe": true,
+      "bootMs": 0,
+      "powerUpMs": 15,
+      "waitMs": 0,
+      "readMs": 70,
+      "sleepUa": 0.2,
+      "activeMa": 0.5,
+      "sleep": [],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus.",
       "libs": [
         "Adafruit HTU21DF Library",
         "Adafruit BusIO"
       ],
-      "esphome": "htu21d",
-      "readMs": 110
+      "esphome": "htu21d"
     },
     {
       "id": "bme280",
@@ -419,16 +443,20 @@
         }
       ],
       "options": [],
-      "warmupMs": 10,
-      "sleepSafe": true,
+      "bootMs": 0,
+      "powerUpMs": 2,
+      "waitMs": 0,
+      "readMs": 15,
+      "sleepUa": 0.3,
+      "activeMa": 0.7,
+      "sleep": [],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. SDO to GND = 0x76, to 3.3 V = 0x77.",
       "libs": [
         "Adafruit BME280 Library",
         "Adafruit Unified Sensor",
         "Adafruit BusIO"
       ],
-      "esphome": "bme280_i2c",
-      "readMs": 15
+      "esphome": "bme280_i2c"
     },
     {
       "id": "bmp280",
@@ -458,16 +486,20 @@
         }
       ],
       "options": [],
-      "warmupMs": 10,
-      "sleepSafe": true,
+      "bootMs": 0,
+      "powerUpMs": 2,
+      "waitMs": 0,
+      "readMs": 10,
+      "sleepUa": 0.3,
+      "activeMa": 0.7,
+      "sleep": [],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. SDO to GND = 0x76, to 3.3 V = 0x77.",
       "libs": [
         "Adafruit BMP280 Library",
         "Adafruit Unified Sensor",
         "Adafruit BusIO"
       ],
-      "esphome": "bmp280_i2c",
-      "readMs": 15
+      "esphome": "bmp280_i2c"
     },
     {
       "id": "bh1750",
@@ -490,14 +522,18 @@
         }
       ],
       "options": [],
-      "warmupMs": 0,
-      "sleepSafe": true,
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 180,
+      "readMs": 5,
+      "sleepUa": 1,
+      "activeMa": 0.2,
+      "sleep": [],
       "wiring": "VCC to 3.3 V, GND, SDA and SCL to the I²C bus. ADDR open or GND = 0x23, 3.3 V = 0x5C.",
       "libs": [
         "BH1750"
       ],
-      "esphome": "bh1750",
-      "readMs": 200
+      "esphome": "bh1750"
     },
     {
       "id": "soil",
@@ -541,12 +577,28 @@
           "default": 1100
         }
       ],
-      "warmupMs": 100,
-      "sleepSafe": true,
+      "bootMs": 0,
+      "powerUpMs": 100,
+      "waitMs": 0,
+      "readMs": 5,
+      "sleepUa": 5000,
+      "activeMa": 5,
+      "sleep": [
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "when": {
+            "$powerPin": false
+          },
+          "note": "draws about 5 mA all the time. Switch it with the sensor power pin to save most of it."
+        }
+      ],
       "wiring": "VCC to 3.3 V, GND, AOUT to an ADC pin. Calibrate once in air and once in a glass of water.",
       "libs": [],
-      "esphome": "adc",
-      "readMs": 5
+      "esphome": "adc"
     },
     {
       "id": "analog",
@@ -590,12 +642,16 @@
           "default": 0
         }
       ],
-      "warmupMs": 10,
-      "sleepSafe": true,
+      "bootMs": 0,
+      "powerUpMs": 10,
+      "waitMs": 0,
+      "readMs": 5,
+      "sleepUa": 0,
+      "activeMa": 0,
+      "sleep": [],
       "wiring": "Signal to an ADC pin, at most 3.3 V at the pin.",
       "libs": [],
-      "esphome": "adc",
-      "readMs": 5
+      "esphome": "adc"
     },
     {
       "id": "battery",
@@ -631,12 +687,16 @@
           "default": 2
         }
       ],
-      "warmupMs": 10,
-      "sleepSafe": true,
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 0,
+      "readMs": 5,
+      "sleepUa": 20,
+      "activeMa": 0.02,
+      "sleep": [],
       "wiring": "Battery + to a 100 kΩ resistor, that to a second 100 kΩ resistor, that to GND. The point between the two resistors goes to the ADC pin, which then sees half the battery voltage (4.2 V full LiPo reads 2.1 V). The divider factor 2 turns it back into the battery voltage.",
       "libs": [],
-      "esphome": "adc",
-      "readMs": 5
+      "esphome": "adc"
     },
     {
       "id": "bme680",
@@ -680,16 +740,28 @@
         }
       ],
       "options": [],
-      "warmupMs": 10,
-      "sleepSafe": true,
+      "bootMs": 0,
+      "powerUpMs": 2,
+      "waitMs": 0,
+      "readMs": 200,
+      "sleepUa": 0.2,
+      "activeMa": 3,
+      "sleep": [
+        {
+          "modes": [
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "note": "measures gas resistance from a cold heater each round. Temperature, humidity and pressure are unaffected; the gas value reads higher than with regular heating."
+        }
+      ],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. SDO to 3.3 V = 0x77 (most boards), to GND = 0x76. Gas resistance is the raw sensor value: it falls when the air carries more volatile compounds.",
       "libs": [
         "Adafruit BME680 Library",
         "Adafruit Unified Sensor",
         "Adafruit BusIO"
       ],
-      "esphome": "bme680",
-      "readMs": 200
+      "esphome": "bme680"
     },
     {
       "id": "sgp30",
@@ -718,17 +790,30 @@
         }
       ],
       "options": [],
-      "warmupMs": 0,
-      "sleepSafe": false,
-      "continuous": true,
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 0,
+      "readMs": 0,
+      "sleepUa": 48000,
+      "activeMa": 48,
+      "ticks": true,
+      "sleep": [
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "blocked": "needs a reading every second for its baseline",
+          "fix": "An SGP40 or SGP41 measures VOC in light sleep at a fraction of the power."
+        }
+      ],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. Needs Always on or Modem sleep: it measures once per second to keep its baseline. Values start after 15 s. With a temperature and humidity sensor on the same device it compensates humidity.",
       "libs": [
         "Adafruit SGP30 Sensor",
         "Adafruit BusIO"
       ],
-      "esphome": "sgp30",
-      "readMs": 0,
-      "requiresAwake": "samples every second"
+      "esphome": "sgp30"
     },
     {
       "id": "sgp40",
@@ -750,17 +835,46 @@
         }
       ],
       "options": [],
-      "warmupMs": 0,
-      "sleepSafe": false,
-      "continuous": true,
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 0,
+      "readMs": 0,
+      "sleepUa": 250,
+      "activeMa": 3,
+      "ticks": true,
+      "sleep": [
+        {
+          "modes": [
+            "LIGHT_SLEEP"
+          ],
+          "families": [
+            "esp8266"
+          ],
+          "blocked": "needs a reading every 10 s, which the ESP8266 light sleep timer cannot keep",
+          "fix": "Use Modem sleep, or an ESP32 board."
+        },
+        {
+          "modes": [
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "blocked": "learns the room continuously and needs a reading at least every 10 s",
+          "fix": "Use light sleep: the board wakes every 10 s for a 30 ms reading."
+        },
+        {
+          "modes": [
+            "LIGHT_SLEEP"
+          ],
+          "minFirmware": "0.6.0",
+          "note": "wakes the board every 10 s for a short reading (Sensirion low-power mode)."
+        }
+      ],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. Needs Always on or Modem sleep: the VOC index learns from one sample per second. 100 is the room's normal air; the first value comes after about a minute. Add a temperature and humidity sensor for compensation.",
       "libs": [
         "Adafruit SGP40 Sensor",
         "Adafruit BusIO"
       ],
-      "esphome": "sgp4x",
-      "readMs": 0,
-      "requiresAwake": "samples every second"
+      "esphome": "sgp4x"
     },
     {
       "id": "sgp41",
@@ -789,18 +903,57 @@
         }
       ],
       "options": [],
-      "warmupMs": 0,
-      "sleepSafe": false,
-      "continuous": true,
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 0,
+      "readMs": 0,
+      "sleepUa": 300,
+      "activeMa": 3.2,
+      "ticks": true,
+      "sleep": [
+        {
+          "modes": [
+            "LIGHT_SLEEP"
+          ],
+          "families": [
+            "esp8266"
+          ],
+          "blocked": "needs a reading every 10 s, which the ESP8266 light sleep timer cannot keep",
+          "fix": "Use Modem sleep, or an ESP32 board."
+        },
+        {
+          "modes": [
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "blocked": "learns the room continuously and needs a reading at least every 10 s",
+          "fix": "Use light sleep without the NOx value, or Modem sleep."
+        },
+        {
+          "modes": [
+            "LIGHT_SLEEP"
+          ],
+          "when": {
+            "$channel": "nox"
+          },
+          "blocked": "needs a reading every second for the NOx index",
+          "fix": "Remove the NOx value: VOC alone works in light sleep."
+        },
+        {
+          "modes": [
+            "LIGHT_SLEEP"
+          ],
+          "minFirmware": "0.6.0",
+          "note": "wakes the board every 10 s for a short reading (Sensirion low-power mode)."
+        }
+      ],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. Needs Always on or Modem sleep: both indices learn from one sample per second. VOC starts after about a minute, NOx after about five. Add a temperature and humidity sensor for compensation.",
       "libs": [
         "Sensirion I2C SGP41",
         "Sensirion Gas Index Algorithm",
         "Sensirion Core"
       ],
-      "esphome": "sgp4x",
-      "readMs": 0,
-      "requiresAwake": "samples every second"
+      "esphome": "sgp4x"
     },
     {
       "id": "scd4x",
@@ -847,15 +1000,44 @@
           "default": "SCD41"
         }
       ],
-      "warmupMs": 5000,
-      "sleepSafe": true,
+      "bootMs": 1000,
+      "powerUpMs": 5000,
+      "waitMs": 0,
+      "readMs": 10,
+      "sleepUa": 15000,
+      "activeMa": 15,
+      "sleep": [
+        {
+          "modes": [
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "when": {
+            "model": "SCD40"
+          },
+          "blocked": "cannot measure once per wake-up",
+          "fix": "An SCD41 measures once per round and sleeps in between."
+        },
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "when": {
+            "model": "SCD41"
+          },
+          "waitMs": 10000,
+          "sleepUa": 0.5,
+          "note": "measures twice per round and keeps the second value (Sensirion: the first after waking is less accurate), then sleeps."
+        }
+      ],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. Measures every 5 s and calibrates itself against fresh air (open a window now and then). In deep sleep only the SCD41 works: it measures once per wake-up.",
       "libs": [
         "Sensirion I2C SCD4x",
         "Sensirion Core"
       ],
-      "esphome": "scd4x",
-      "readMs": 5000
+      "esphome": "scd4x"
     },
     {
       "id": "veml7700",
@@ -877,15 +1059,19 @@
         }
       ],
       "options": [],
-      "warmupMs": 5,
-      "sleepSafe": true,
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 0,
+      "readMs": 600,
+      "sleepUa": 0.5,
+      "activeMa": 0.05,
+      "sleep": [],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. Gain and integration time adjust to the light automatically.",
       "libs": [
         "Adafruit VEML7700 Library",
         "Adafruit BusIO"
       ],
-      "esphome": "veml7700",
-      "readMs": 800
+      "esphome": "veml7700"
     },
     {
       "id": "ina219",
@@ -941,15 +1127,19 @@
           "default": "32V_2A"
         }
       ],
-      "warmupMs": 5,
-      "sleepSafe": true,
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 0,
+      "readMs": 5,
+      "sleepUa": 15,
+      "activeMa": 1,
+      "sleep": [],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. VIN+ and VIN− go in series into the measured circuit, up to 26 V. A0/A1 bridges set the address (0x40 to 0x45). The smallest range that fits gives the finest current resolution.",
       "libs": [
         "Adafruit INA219",
         "Adafruit BusIO"
       ],
-      "esphome": "ina219",
-      "readMs": 5
+      "esphome": "ina219"
     },
     {
       "id": "ms8607",
@@ -985,9 +1175,13 @@
         }
       ],
       "options": [],
-      "warmupMs": 15,
-      "readMs": 30,
-      "sleepSafe": true,
+      "bootMs": 0,
+      "powerUpMs": 15,
+      "waitMs": 0,
+      "readMs": 40,
+      "sleepUa": 0.2,
+      "activeMa": 1,
+      "sleep": [],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. The chip uses two addresses at once (0x76 and 0x40); no other sensor on the bus may use them.",
       "libs": [
         "Adafruit MS8607",
@@ -1024,9 +1218,13 @@
         }
       ],
       "options": [],
-      "warmupMs": 10,
+      "bootMs": 0,
+      "powerUpMs": 2,
+      "waitMs": 0,
       "readMs": 20,
-      "sleepSafe": true,
+      "sleepUa": 2,
+      "activeMa": 0.7,
+      "sleep": [],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. SDO to GND switches the address to 0x76.",
       "libs": [
         "Adafruit BMP3XX Library",
@@ -1063,9 +1261,13 @@
         }
       ],
       "options": [],
-      "warmupMs": 0,
-      "readMs": 1000,
-      "sleepSafe": true,
+      "bootMs": 0,
+      "powerUpMs": 40,
+      "waitMs": 0,
+      "readMs": 120,
+      "sleepUa": 0.5,
+      "activeMa": 0.3,
+      "sleep": [],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. SDO to GND switches the address to 0x76.",
       "libs": [
         "Adafruit DPS310",
@@ -1102,9 +1304,13 @@
         }
       ],
       "options": [],
-      "warmupMs": 10,
-      "readMs": 50,
-      "sleepSafe": true,
+      "bootMs": 0,
+      "powerUpMs": 5,
+      "waitMs": 0,
+      "readMs": 20,
+      "sleepUa": 1,
+      "activeMa": 0.02,
+      "sleep": [],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. SDO to GND switches the address to 0x5C.",
       "libs": [
         "Adafruit LPS2X",
@@ -1140,9 +1346,13 @@
         }
       ],
       "options": [],
-      "warmupMs": 10,
+      "bootMs": 0,
+      "powerUpMs": 1,
+      "waitMs": 0,
       "readMs": 20,
-      "sleepSafe": true,
+      "sleepUa": 0.3,
+      "activeMa": 0.5,
+      "sleep": [],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus.",
       "libs": [
         "Adafruit SHTC3 Library",
@@ -1180,9 +1390,13 @@
         }
       ],
       "options": [],
-      "warmupMs": 0,
-      "readMs": 260,
-      "sleepSafe": true,
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 260,
+      "readMs": 5,
+      "sleepUa": 0.1,
+      "activeMa": 0.2,
+      "sleep": [],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. A0, A1, A2 to 3.3 V select addresses 0x19 to 0x1F.",
       "libs": [
         "Adafruit MCP9808 Library",
@@ -1215,9 +1429,13 @@
         }
       ],
       "options": [],
-      "warmupMs": 1100,
+      "bootMs": 0,
+      "powerUpMs": 2,
+      "waitMs": 130,
       "readMs": 5,
-      "sleepSafe": true,
+      "sleepUa": 0.3,
+      "activeMa": 0.14,
+      "sleep": [],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. ADD0 to GND 0x48, to 3.3 V 0x49, to SDA 0x4A, to SCL 0x4B.",
       "libs": [
         "Adafruit TMP117",
@@ -1246,9 +1464,13 @@
         }
       ],
       "options": [],
-      "warmupMs": 0,
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 0,
       "readMs": 350,
-      "sleepSafe": true,
+      "sleepUa": 2.3,
+      "activeMa": 0.4,
+      "sleep": [],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus.",
       "libs": [
         "Adafruit TSL2591 Library",
@@ -1284,9 +1506,13 @@
         }
       ],
       "options": [],
-      "warmupMs": 0,
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 0,
       "readMs": 250,
-      "sleepSafe": true,
+      "sleepUa": 1,
+      "activeMa": 0.1,
+      "sleep": [],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. Under glass or plastic the UV index reads far too low: the sensor needs open sky.",
       "libs": [
         "Adafruit LTR390 Library",
@@ -1328,9 +1554,34 @@
         }
       ],
       "options": [],
-      "warmupMs": 2000,
-      "readMs": 2000,
-      "sleepSafe": true,
+      "bootMs": 2000,
+      "powerUpMs": 4000,
+      "waitMs": 0,
+      "readMs": 30,
+      "sleepUa": 6000,
+      "activeMa": 19,
+      "sleep": [
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "when": {
+            "$powerPin": true
+          },
+          "blocked": "measures on its own between rounds and restarts its calibration whenever it loses power",
+          "fix": "Leave the SCD30 powered (no sensor power pin), or use an SCD41."
+        },
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "note": "keeps measuring on its own at the send interval (at most every 30 min), about 6 mA."
+        }
+      ],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. Measures every 2 s on its own and calibrates against fresh air, so keep it powered (no sensor power pin). Draws about 19 mA.",
       "libs": [
         "Adafruit SCD30",
@@ -1373,15 +1624,57 @@
         }
       ],
       "options": [],
-      "warmupMs": 30000,
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 30000,
       "readMs": 50,
-      "sleepSafe": true,
+      "sleepUa": 200,
+      "activeMa": 60,
+      "sleep": [
+        {
+          "modes": [
+            "ALWAYS_ON",
+            "MODEM_SLEEP",
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "when": {
+            "$pin": true
+          },
+          "minFirmware": "0.6.0"
+        },
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "when": {
+            "$pin": false,
+            "$powerPin": false
+          },
+          "waitMs": 0,
+          "sleepUa": 60000,
+          "note": "keeps its fan running between rounds (about 60 mA). Wire SET to a GPIO to let it sleep."
+        }
+      ],
       "wiring": "5 V to VIN, GND, SDA and SCL to the I²C bus. The fan needs 30 s after power-up for stable values.",
       "libs": [
         "Adafruit PM25 AQI Sensor",
         "Adafruit BusIO"
       ],
-      "esphome": "pmsa003i"
+      "esphome": "pmsa003i",
+      "pins": [
+        {
+          "key": "pin",
+          "label": "SET (fan sleep, optional)",
+          "caps": [
+            "digital"
+          ],
+          "optional": true
+        }
+      ]
     },
     {
       "id": "pms5003",
@@ -1396,6 +1689,14 @@
           "caps": [
             "digital"
           ]
+        },
+        {
+          "key": "pin2",
+          "label": "SET (fan sleep, optional)",
+          "caps": [
+            "digital"
+          ],
+          "optional": true
         }
       ],
       "channels": [
@@ -1422,9 +1723,41 @@
         }
       ],
       "options": [],
-      "warmupMs": 30000,
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 30000,
       "readMs": 1000,
-      "sleepSafe": true,
+      "sleepUa": 200,
+      "activeMa": 60,
+      "sleep": [
+        {
+          "modes": [
+            "ALWAYS_ON",
+            "MODEM_SLEEP",
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "when": {
+            "$pin2": true
+          },
+          "minFirmware": "0.6.0"
+        },
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "when": {
+            "$pin2": false,
+            "$powerPin": false
+          },
+          "waitMs": 0,
+          "sleepUa": 60000,
+          "note": "keeps its fan running between rounds (about 60 mA). Wire SET to a GPIO to let it sleep."
+        }
+      ],
       "wiring": "VCC to 5 V, GND to GND, the sensor's TX to the pin. Its RX stays unconnected. The fan needs 30 s after power-up for stable values.",
       "libs": [
         "Adafruit PM25 AQI Sensor",
@@ -1501,9 +1834,52 @@
         }
       ],
       "options": [],
-      "warmupMs": 1100,
-      "readMs": 1000,
-      "sleepSafe": true,
+      "bootMs": 50,
+      "powerUpMs": 0,
+      "waitMs": 10000,
+      "readMs": 30,
+      "sleepUa": 2600,
+      "activeMa": 70,
+      "sleep": [
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "when": {
+            "$powerPin": true,
+            "$channel": "voc"
+          },
+          "blocked": "learns VOC on the sensor itself and starts over whenever it loses power",
+          "fix": "Leave the SEN5x powered, or remove VOC and NOx."
+        },
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "when": {
+            "$powerPin": true,
+            "$channel": "nox"
+          },
+          "blocked": "learns NOx on the sensor itself and starts over whenever it loses power",
+          "fix": "Leave the SEN5x powered, or remove VOC and NOx."
+        },
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "when": {
+            "$channel": "voc"
+          },
+          "sleepUa": 7000,
+          "note": "keeps measuring VOC/NOx on its own with the fan off between rounds (about 7 mA)."
+        }
+      ],
       "wiring": "5 V to VDD, GND, SDA and SCL to the I²C bus, SEL to GND. The SEN54 has no NOx: remove that value. VOC and NOx learn the room over hours, so keep it powered.",
       "libs": [
         "Sensirion I2C SEN5X",
@@ -1570,9 +1946,13 @@
           "default": 0.8
         }
       ],
-      "warmupMs": 5,
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 0,
       "readMs": 10,
-      "sleepSafe": true,
+      "sleepUa": 0.5,
+      "activeMa": 0.35,
+      "sleep": [],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. The load current flows through IN+ and IN−; VBUS to the voltage to measure. Most modules have a 0.1 Ω shunt (up to 0.8 A).",
       "libs": [
         "INA226"
@@ -1621,9 +2001,13 @@
         }
       ],
       "options": [],
-      "warmupMs": 5,
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 0,
       "readMs": 10,
-      "sleepSafe": true,
+      "sleepUa": 0.5,
+      "activeMa": 1.1,
+      "sleep": [],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. The load current flows through V+ and V−, the shunt is built in.",
       "libs": [
         "Adafruit INA260 Library",
@@ -1675,9 +2059,13 @@
         }
       ],
       "options": [],
-      "warmupMs": 5,
-      "readMs": 40,
-      "sleepSafe": true,
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 0,
+      "readMs": 10,
+      "sleepUa": 0.5,
+      "activeMa": 0.15,
+      "sleep": [],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. Inputs A0 to A3 measure 0 to 3.3 V against GND, never more than the supply. Remove the inputs you do not use. ADDR to GND 0x48, VDD 0x49, SDA 0x4A, SCL 0x4B.",
       "libs": [
         "Adafruit ADS1X15",
@@ -1730,9 +2118,13 @@
           "default": 0
         }
       ],
-      "warmupMs": 5,
+      "bootMs": 2,
+      "powerUpMs": 0,
+      "waitMs": 0,
       "readMs": 100,
-      "sleepSafe": true,
+      "sleepUa": 5,
+      "activeMa": 19,
+      "sleep": [],
       "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. Mount it above the water, looking down. Set the empty and full distances to get the fill level, or remove that value.",
       "libs": [
         "VL53L0X"
@@ -1796,9 +2188,25 @@
           "default": 0
         }
       ],
-      "warmupMs": 50,
+      "bootMs": 0,
+      "powerUpMs": 50,
+      "waitMs": 0,
       "readMs": 400,
-      "sleepSafe": true,
+      "sleepUa": 2000,
+      "activeMa": 15,
+      "sleep": [
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "when": {
+            "$powerPin": false
+          },
+          "note": "draws about 2 mA between rounds. Switch it with the sensor power pin to save it."
+        }
+      ],
       "wiring": "VCC to 5 V, GND, TRIG to the trigger pin. ECHO carries 5 V: connect it through a divider (1 kΩ from ECHO to the echo pin, 2 kΩ from that pin to GND). The waterproof JSN-SR04T works the same and suits tanks.",
       "libs": [],
       "esphome": "ultrasonic"
@@ -1845,11 +2253,24 @@
           "default": 450
         }
       ],
-      "warmupMs": 0,
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 0,
       "readMs": 0,
-      "sleepSafe": false,
-      "continuous": true,
-      "requiresAwake": "counts every pulse",
+      "sleepUa": 5000,
+      "activeMa": 5,
+      "ticks": true,
+      "sleep": [
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "blocked": "counts every pulse of the flow meter, so the board has to stay awake",
+          "fix": "Use Modem sleep or Always on."
+        }
+      ],
       "wiring": "Red to 5 V, black to GND, yellow (signal) to the pin. The signal is open collector, the internal pull-up keeps it at 3.3 V.",
       "libs": [],
       "esphome": "pulse_counter"
@@ -1888,11 +2309,42 @@
           "default": 0.2794
         }
       ],
-      "warmupMs": 0,
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 0,
       "readMs": 0,
-      "sleepSafe": false,
-      "continuous": true,
-      "requiresAwake": "counts every tip of the bucket",
+      "sleepUa": 0,
+      "activeMa": 0,
+      "wakesBoard": true,
+      "sleep": [
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "families": [
+            "esp8266"
+          ],
+          "blocked": "needs a pin that wakes the board, which the ESP8266 does not have",
+          "fix": "Use Modem sleep, or an ESP32 board."
+        },
+        {
+          "modes": [
+            "HIBERNATE"
+          ],
+          "blocked": "needs a pin that wakes the board, which hibernate switches off",
+          "fix": "Use deep sleep: each tip wakes the board for a moment."
+        },
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP"
+          ],
+          "minFirmware": "0.6.0",
+          "note": "each tip wakes the board for a moment to count it; the total goes out with the next round."
+        }
+      ],
       "wiring": "One wire of the reed switch to the pin, the other to GND. The internal pull-up holds the pin high between tips.",
       "libs": [],
       "esphome": "pulse_counter"
@@ -1940,9 +2392,25 @@
           "default": 2030
         }
       ],
-      "warmupMs": 100,
+      "bootMs": 0,
+      "powerUpMs": 1000,
+      "waitMs": 0,
       "readMs": 5,
-      "sleepSafe": true,
+      "sleepUa": 10000,
+      "activeMa": 10,
+      "sleep": [
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "when": {
+            "$powerPin": false
+          },
+          "note": "the pH board draws about 10 mA all the time. Switch it with the sensor power pin to save most of it."
+        }
+      ],
       "wiring": "Use a 3.3 V pH board (e.g. Gravity pH v2). Signal to an ADC pin, never more than 3.3 V. Calibrate: dip the probe into pH 7 and pH 4 buffer, note the millivolts the serial monitor shows, enter them here.",
       "libs": [],
       "esphome": "adc"
@@ -1989,9 +2457,25 @@
           "default": 1
         }
       ],
-      "warmupMs": 100,
+      "bootMs": 0,
+      "powerUpMs": 1000,
+      "waitMs": 0,
       "readMs": 5,
-      "sleepSafe": true,
+      "sleepUa": 6000,
+      "activeMa": 6,
+      "sleep": [
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "when": {
+            "$powerPin": false
+          },
+          "note": "the TDS board draws about 6 mA all the time. Switch it with the sensor power pin to save most of it."
+        }
+      ],
       "wiring": "Gravity TDS board: + to 3.3 V, − to GND, A to an ADC pin. A water temperature sensor on the same device makes the value temperature compensated. Calibrate with a 1413 µS/cm solution: factor = 1.413 / shown EC.",
       "libs": [],
       "esphome": "adc"
@@ -2012,9 +2496,13 @@
         }
       ],
       "options": [],
-      "warmupMs": 0,
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 0,
       "readMs": 0,
-      "sleepSafe": true,
+      "sleepUa": 0,
+      "activeMa": 0,
+      "sleep": [],
       "wiring": "Nothing to wire. Useful to find a good spot, and gives a board with only outputs something to send: commands arrive with sent values.",
       "libs": [],
       "esphome": "wifi_signal"
@@ -2065,6 +2553,39 @@
           "default": true
         }
       ],
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 0,
+      "readMs": 0,
+      "sleepUa": 0,
+      "activeMa": 0,
+      "sleep": [
+        {
+          "modes": [
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "families": [
+            "esp8266"
+          ],
+          "blocked": "loses its state in deep sleep, the ESP8266 cannot hold a pin",
+          "fix": "Use light sleep or a mode that stays on."
+        },
+        {
+          "modes": [
+            "HIBERNATE"
+          ],
+          "blocked": "loses its state, hibernate switches the pins off",
+          "fix": "Use deep sleep: the pin holds its level while the board sleeps."
+        },
+        {
+          "modes": [
+            "DEEP_SLEEP"
+          ],
+          "minFirmware": "0.6.0",
+          "note": "holds its state while the board sleeps; commands arrive with the next round, a timed command keeps the board awake until it ends."
+        }
+      ],
       "wiring": "Relay module: VCC to 5 V (or 3.3 V for 3 V modules), GND, IN to the pin. Most cheap modules switch on at LOW. Mains voltage only in a closed housing.",
       "category": "outputs",
       "bus": "gpio",
@@ -2078,10 +2599,6 @@
         }
       ],
       "channels": [],
-      "warmupMs": 0,
-      "readMs": 0,
-      "sleepSafe": false,
-      "requiresAwake": "loses its state in deep sleep",
       "libs": [],
       "esphome": "gpio"
     },
@@ -2137,6 +2654,51 @@
           "default": false
         }
       ],
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 0,
+      "readMs": 0,
+      "sleepUa": 0,
+      "activeMa": 0,
+      "sleep": [
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "when": {
+            "dim": true
+          },
+          "blocked": "dims with PWM, which stops while the board sleeps",
+          "fix": "Switch dimming off, or use Modem sleep or Always on."
+        },
+        {
+          "modes": [
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "families": [
+            "esp8266"
+          ],
+          "blocked": "loses its state in deep sleep, the ESP8266 cannot hold a pin",
+          "fix": "Use light sleep or a mode that stays on."
+        },
+        {
+          "modes": [
+            "HIBERNATE"
+          ],
+          "blocked": "loses its state, hibernate switches the pins off",
+          "fix": "Use deep sleep: the pin holds its level while the board sleeps."
+        },
+        {
+          "modes": [
+            "DEEP_SLEEP"
+          ],
+          "minFirmware": "0.6.0",
+          "note": "holds its state while the board sleeps; commands arrive with the next round, a timed command keeps the board awake until it ends."
+        }
+      ],
       "wiring": "LED with a 220 Ω resistor from the pin to GND, or the gate input of an LED driver. A pin delivers at most about 12 mA.",
       "category": "outputs",
       "bus": "gpio",
@@ -2150,10 +2712,6 @@
         }
       ],
       "channels": [],
-      "warmupMs": 0,
-      "readMs": 0,
-      "sleepSafe": false,
-      "requiresAwake": "loses its state in deep sleep",
       "libs": [],
       "esphome": "gpio"
     },
@@ -2203,6 +2761,39 @@
           "default": true
         }
       ],
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 0,
+      "readMs": 0,
+      "sleepUa": 0,
+      "activeMa": 0,
+      "sleep": [
+        {
+          "modes": [
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "families": [
+            "esp8266"
+          ],
+          "blocked": "loses its state in deep sleep, the ESP8266 cannot hold a pin",
+          "fix": "Use light sleep or a mode that stays on."
+        },
+        {
+          "modes": [
+            "HIBERNATE"
+          ],
+          "blocked": "loses its state, hibernate switches the pins off",
+          "fix": "Use deep sleep: the pin holds its level while the board sleeps."
+        },
+        {
+          "modes": [
+            "DEEP_SLEEP"
+          ],
+          "minFirmware": "0.6.0",
+          "note": "holds its state while the board sleeps; commands arrive with the next round, a timed command keeps the board awake until it ends."
+        }
+      ],
       "wiring": "Logic-level MOSFET module: SIG to the pin, GND shared with the load supply. Put a flyback diode across pumps, valves and motors.",
       "category": "outputs",
       "bus": "gpio",
@@ -2216,10 +2807,6 @@
         }
       ],
       "channels": [],
-      "warmupMs": 0,
-      "readMs": 0,
-      "sleepSafe": false,
-      "requiresAwake": "loses its state in deep sleep",
       "libs": [],
       "esphome": "gpio"
     },
@@ -2277,10 +2864,42 @@
           "default": ""
         }
       ],
-      "warmupMs": 0,
+      "bootMs": 0,
+      "powerUpMs": 0,
+      "waitMs": 0,
       "readMs": 0,
-      "sleepSafe": false,
-      "requiresAwake": "is only read while the board is awake",
+      "sleepUa": 0,
+      "activeMa": 0,
+      "wakesBoard": true,
+      "sleep": [
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "families": [
+            "esp8266"
+          ],
+          "blocked": "is only read while the board is awake, the ESP8266 cannot wake from a pin",
+          "fix": "Use Modem sleep, or an ESP32 board."
+        },
+        {
+          "modes": [
+            "HIBERNATE"
+          ],
+          "blocked": "needs a pin that wakes the board, which hibernate switches off",
+          "fix": "Use deep sleep: a press wakes the board."
+        },
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP"
+          ],
+          "minFirmware": "0.6.0",
+          "note": "a press wakes the board and goes out right away (a few seconds for WiFi)."
+        }
+      ],
       "libs": [],
       "esphome": "gpio",
       "wiring": "One side to the pin, the other to GND (with \"UP\"). Each press is sent at once as value 1; remove the value to only toggle an output."

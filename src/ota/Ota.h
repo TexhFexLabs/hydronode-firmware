@@ -37,6 +37,10 @@ struct RoundReport {
 // short pause). Carries out a waiting offer, which may restart the board.
 bool afterRound(HydroNode* hydro, const Config& cfg, const RoundReport& report);
 
+// An update proves itself or reports its rollback right now: a wake-up by a pin (rain gauge,
+// button) then runs a full round instead of going straight back to sleep.
+bool busy();
+
 // Seconds to wait before a verification retry (the backend takes one value per type every 10 s).
 constexpr uint32_t kRetryPauseMs = 15000;
 

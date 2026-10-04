@@ -53,6 +53,8 @@ A driver or sleep mode added in a later release carries `minFirmware` in the cat
 (`catalog/drivers.json`, `catalog/sleep-modes.json`). Fleet sends a config that uses it only to a
 board on that version or newer; with a firmware update in the same change the firmware goes first,
 then the config. Without `minFirmware` a part runs on every firmware from 0.5.0.
+A sleep rule can carry its own `minFirmware` (a rain gauge in deep sleep needs 0.6.0); see
+[POWER.md](POWER.md).
 
 ## The first wake cycle decides
 

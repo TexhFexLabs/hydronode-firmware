@@ -96,6 +96,12 @@
         "wifiFastMs": 800,
         "connectMs": 1500,
         "valueMs": 350
+      },
+      "current": {
+        "cpuMa": 30,
+        "wifiMa": 110,
+        "modemMa": 22,
+        "lightUa": 800
       }
     },
     "esp32s2": {
@@ -207,6 +213,12 @@
         "wifiFastMs": 800,
         "connectMs": 1500,
         "valueMs": 350
+      },
+      "current": {
+        "cpuMa": 25,
+        "wifiMa": 95,
+        "modemMa": 20,
+        "lightUa": 750
       }
     },
     "esp32s3": {
@@ -314,6 +326,12 @@
         "wifiFastMs": 800,
         "connectMs": 1500,
         "valueMs": 350
+      },
+      "current": {
+        "cpuMa": 40,
+        "wifiMa": 110,
+        "modemMa": 25,
+        "lightUa": 240
       }
     },
     "esp32c3": {
@@ -382,6 +400,12 @@
         "wifiFastMs": 800,
         "connectMs": 1500,
         "valueMs": 350
+      },
+      "current": {
+        "cpuMa": 20,
+        "wifiMa": 85,
+        "modemMa": 15,
+        "lightUa": 130
       }
     },
     "esp32c6": {
@@ -465,6 +489,12 @@
         "wifiFastMs": 800,
         "connectMs": 1500,
         "valueMs": 350
+      },
+      "current": {
+        "cpuMa": 22,
+        "wifiMa": 80,
+        "modemMa": 14,
+        "lightUa": 180
       }
     },
     "esp8266": {
@@ -522,6 +552,12 @@
         "wifiFastMs": 1200,
         "connectMs": 3200,
         "valueMs": 600
+      },
+      "current": {
+        "cpuMa": 15,
+        "wifiMa": 75,
+        "modemMa": 15,
+        "lightUa": 900
       }
     }
   },
@@ -551,7 +587,8 @@
           35
         ]
       },
-      "batteryFriendly": false
+      "batteryFriendly": false,
+      "sleepUa": 8000
     },
     {
       "id": "esp32-wrover",
@@ -581,7 +618,8 @@
           35
         ]
       },
-      "batteryFriendly": false
+      "batteryFriendly": false,
+      "sleepUa": 8000
     },
     {
       "id": "esp32-d1-r32",
@@ -608,7 +646,8 @@
           35
         ]
       },
-      "batteryFriendly": false
+      "batteryFriendly": false,
+      "sleepUa": 9000
     },
     {
       "id": "esp32s2-mini",
@@ -636,7 +675,8 @@
         ]
       },
       "led": 15,
-      "batteryFriendly": false
+      "batteryFriendly": false,
+      "sleepUa": 150
     },
     {
       "id": "esp32s3-devkitc",
@@ -663,7 +703,8 @@
           2
         ]
       },
-      "batteryFriendly": false
+      "batteryFriendly": false,
+      "sleepUa": 8000
     },
     {
       "id": "esp32s3-supermini",
@@ -708,7 +749,8 @@
         ]
       },
       "led": 48,
-      "batteryFriendly": true
+      "batteryFriendly": true,
+      "sleepUa": 1200
     },
     {
       "id": "esp32s3-xiao",
@@ -761,7 +803,8 @@
         ]
       },
       "led": 21,
-      "batteryFriendly": true
+      "batteryFriendly": true,
+      "sleepUa": 20
     },
     {
       "id": "esp32c3-devkitm",
@@ -788,7 +831,8 @@
           4
         ]
       },
-      "batteryFriendly": false
+      "batteryFriendly": false,
+      "sleepUa": 6000
     },
     {
       "id": "esp32c3-supermini",
@@ -831,7 +875,8 @@
         ]
       },
       "led": 8,
-      "batteryFriendly": true
+      "batteryFriendly": true,
+      "sleepUa": 1200
     },
     {
       "id": "esp32c3-xiao",
@@ -883,7 +928,8 @@
           4
         ]
       },
-      "batteryFriendly": true
+      "batteryFriendly": true,
+      "sleepUa": 50
     },
     {
       "id": "esp32c6-devkitc",
@@ -910,7 +956,8 @@
           1
         ]
       },
-      "batteryFriendly": false
+      "batteryFriendly": false,
+      "sleepUa": 8000
     },
     {
       "id": "esp32c6-xiao",
@@ -966,7 +1013,8 @@
         ]
       },
       "led": 15,
-      "batteryFriendly": true
+      "batteryFriendly": true,
+      "sleepUa": 20
     },
     {
       "id": "esp8266-nodemcu",
@@ -1019,7 +1067,8 @@
       },
       "led": 2,
       "adcRangeMv": 3200,
-      "batteryFriendly": false
+      "batteryFriendly": false,
+      "sleepUa": 8000
     },
     {
       "id": "esp8266-d1-mini",
@@ -1072,7 +1121,8 @@
       },
       "led": 2,
       "adcRangeMv": 3200,
-      "batteryFriendly": false
+      "batteryFriendly": false,
+      "sleepUa": 200
     }
   ]
 }

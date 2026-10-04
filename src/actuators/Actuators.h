@@ -8,6 +8,7 @@
 // round. Buttons report a press right away (value 1) and can toggle an output on the board.
 
 #include "config/Config.h"
+#include "power/Power.h"
 
 class HydroNode;
 
@@ -34,7 +35,13 @@ uint32_t pendingMs();
 // A button press waiting to be sent; returns its measurement type or nullptr.
 const char* takePress();
 
-// ESP32 family: keep output levels through light sleep.
-void holdForSleep(bool hold);
+// Buttons as pins that wake the board (light and deep sleep), at most `cap`.
+uint8_t wakeInputs(power::WakeInput* out, uint8_t cap);
+
+// A button on `pin` woke the board: handle the press (toggle, queue) once. False for no button.
+bool wakePress(int8_t pin);
+
+// A press is waiting to be sent.
+bool hasPresses();
 
 }  // namespace hn::act
