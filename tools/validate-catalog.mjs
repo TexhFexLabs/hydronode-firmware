@@ -65,8 +65,30 @@ for (const [pio] of iniDeps) {
   if (!libs.libraries.some((l) => l.pio === pio)) fail(`platformio.ini: ${pio} is not listed in catalog/libraries.json`);
 }
 
+// --- firmware versions ----------------------------------------------------------
+// "minFirmware" on a driver or sleep mode: the first firmware that runs it. Fleet sends a config
+// that uses it only to a device on that version or newer, or together with the firmware update.
+// Without it, a part works on every firmware that takes config over the air (0.5.0).
+const CONFIG_OTA_MIN = '0.5.0';
+const firmwareVersion = /^version\s*=\s*(\S+)/m.exec(ini)?.[1];
+const semver = (v) => /^(\d+)\.(\d+)\.(\d+)$/.exec(v ?? '')?.slice(1).map(Number) ?? null;
+const compare = (a, b) => {
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return Math.sign(a[i] - b[i]);
+  return 0;
+};
+function checkMinFirmware(owner, value) {
+  if (value === undefined) return;
+  const v = semver(value);
+  if (!v) return fail(`${owner}: minFirmware must be X.Y.Z, got ${value}`);
+  if (compare(v, semver(CONFIG_OTA_MIN)) < 0) fail(`${owner}: minFirmware below ${CONFIG_OTA_MIN} means nothing, leave it out`);
+  if (semver(firmwareVersion) && compare(v, semver(firmwareVersion)) > 0) {
+    fail(`${owner}: minFirmware ${value} is newer than this firmware (${firmwareVersion})`);
+  }
+}
+
 // --- sleep modes ---------------------------------------------------------------
 const modeIds = new Set(sleep.modes.map((m) => m.id));
+for (const m of sleep.modes) checkMinFirmware(`sleep mode ${m.id}`, m.minFirmware);
 
 // --- boards ---------------------------------------------------------------------
 const boardIds = new Set();
@@ -174,6 +196,7 @@ for (const d of drivers.drivers) {
   if (d.continuous && d.sleepSafe) fail(`driver ${d.id}: continuous drivers cannot be sleepSafe`);
   // Anything that rules out sleeping modes says why, in words the power step shows.
   if ((d.continuous || d.kind) && !d.requiresAwake) fail(`driver ${d.id}: requiresAwake (the reason) missing`);
+  checkMinFirmware(`driver ${d.id}`, d.minFirmware);
   if (d.options.length > 6) fail(`driver ${d.id}: at most 6 options (kMaxOptions in src/config/Config.h)`);
   for (const o of d.options) {
     if (!OPTION_TYPES.includes(o.type)) fail(`driver ${d.id}: option ${o.key} has unknown type ${o.type}`);
@@ -197,10 +220,9 @@ const outIdx = process.argv.indexOf('--out');
 if (outIdx > 0) {
   const outDir = join(root, process.argv[outIdx + 1] ?? 'dist');
   mkdirSync(outDir, { recursive: true });
-  const version = /^version\s*=\s*(\S+)/m.exec(ini)?.[1];
   const merged = {
     schema: 1,
-    firmwareVersion: version,
+    firmwareVersion,
     families: boards.families,
     boards: boards.boards,
     quantities: drivers.quantities,

@@ -22,7 +22,7 @@ to what it ran before by itself. See [Updates over the air](#updates-over-the-ai
 | `src/ota/` | updates over the air: offer checks, signed download, config merge, verify and rollback, trusted keys (`OtaKeys.h`) |
 | `src/scanner/` | I²C and 1-Wire scanner (`scan-*` environments), flashed from the wiring step |
 | `catalog/boards.json` | chip families, boards, pin rules, sleep modes per family |
-| `catalog/drivers.json` | supported sensors, buses, channels, options |
+| `catalog/drivers.json` | supported sensors, buses, channels, options, `minFirmware` for drivers newer than 0.5.0 |
 | `catalog/sleep-modes.json` | energy modes |
 | `catalog/libraries.json` | every bundled library with exact version and SPDX license |
 | `partitions/` | flash layout (`hncfg` at `0x390000`, 8 KB) |
