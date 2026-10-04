@@ -44,6 +44,18 @@ the web flasher, `HNC1` + CRC), keeps the old block (ESP32: NVS, ESP8266: flash 
 config), acks `config_applied` and restarts. A merged config the firmware would not run is refused
 with `config_invalid` before anything is written.
 
+The config carries the whole setup: sensors, pins, I²C buses, options, power mode and timing. Every
+driver is built into every image, so a board on 0.5.0 or later takes new sensors, other pins or
+another sleep mode as a plain config update, no firmware update needed. Only the board itself and
+the WiFi stay as they are.
+
+A driver or sleep mode added in a later release carries `minFirmware` in the catalog
+(`catalog/drivers.json`, `catalog/sleep-modes.json`). Fleet sends a config that uses it only to a
+board on that version or newer; with a firmware update in the same change the firmware goes first,
+then the config. Without `minFirmware` a part runs on every firmware from 0.5.0.
+A sleep rule can carry its own `minFirmware` (a rain gauge in deep sleep needs 0.6.0); see
+[POWER.md](POWER.md).
+
 ## The first wake cycle decides
 
 New firmware starts "pending verify" (`verifyRollbackLater()` returns true, so the Arduino core does

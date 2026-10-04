@@ -68,21 +68,34 @@ void service() {}
 bool busy() { return fake::pulseLeft > 0; }
 uint32_t pendingMs() { return fake::pulseLeft; }
 const char* takePress() { return nullptr; }
-void holdForSleep(bool) {}
+uint8_t wakeInputs(power::WakeInput*, uint8_t) { return 0; }
+bool wakePress(int8_t) { return false; }
+bool hasPresses() { return false; }
 }
 namespace hn::net {
 bool connect(const Config&, uint32_t) { return true; }
 bool connected() { return true; }
 void off() {}
 void setPowerSave(bool) {}
+const char* lastError() { return nullptr; }
+uint32_t lastConnectMs() { return 0; }
 }
 namespace hn::power {
 const char* wakeReason() { return "RESET"; }
 void sensorsOn(const Config&) {}
 void sensorsOff(const Config&) {}
 uint32_t sleepMs(uint32_t, uint32_t) { return 1000; }
-void lightSleep(const Config&, uint32_t ms) { delay(ms); }
-[[noreturn]] void deepSleep(const Config&, uint32_t) { ESP.restart(); }
+void keepLevel(int8_t) {}
+void releaseLevel(int8_t) {}
+void holdLevels(bool) {}
+void lightSleep(const Config&, uint32_t ms, const WakeInput*, uint8_t, bool) { delay(ms); }
+[[noreturn]] void deepSleep(const Config&, uint32_t, const WakeInput*, uint8_t) { ESP.restart(); }
+uint32_t activeInputs(const WakeInput*, uint8_t, bool) { return 0; }
+void setNextRound(uint32_t) {}
+int64_t untilNextRoundMs() { return 60000; }
+ReportState& report() { static ReportState r{}; return r; }
+void loadReport(bool) {}
+void saveReport() {}
 Rounds loadRounds(bool) { return {0,0}; }
 void saveRounds(const Rounds&) {}
 void resumeLongSleep(const Config&) {}
@@ -90,6 +103,8 @@ void resumeLongSleep(const Config&) {}
 namespace hn::status { void begin() {} void line(const char*, ...) {} void flush() {} }
 namespace hn {
 Ambient& ambient() { static Ambient a{}; return a; }
-Driver* createDriver(const DeviceConfig&, TwoWire*[], uint16_t, bool) { return nullptr; }
-void Driver::fill(Reading*, const char*, float, bool, bool) const {}
+Driver* createDriver(const DeviceConfig&, TwoWire*[], const DriverContext&) { return nullptr; }
+void Driver::fill(Reading*, const char*, float, bool, bool) {}
+bool Driver::sends(const char*) const { return true; }
+void addSleepTips(int8_t, uint16_t) {}
 }

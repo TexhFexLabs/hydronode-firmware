@@ -22,6 +22,15 @@ constexpr uint32_t kSleepMagic = 0x484E5332;  // "HNS2": remaining time in ms
 constexpr uint32_t kRtcSlot = 0;              // slots 0..3, the WiFi module uses 8+
 constexpr uint32_t kRoundMagic = 0x484E5244;  // "HNRD"
 constexpr uint32_t kRoundSlot = 4;            // slots 4..7
+constexpr uint32_t kReportMagic = 0x484E5250;  // "HNRP"
+constexpr uint32_t kReportSlot = 16;           // slots 16..23 (WiFi uses 8..11, outputs 64+)
+
+struct StoredReport {
+    uint32_t magic;
+    ReportState state;
+};
+static_assert(sizeof(StoredReport) <= 8 * 4, "report does not fit its RTC slots");
+StoredReport stored{};
 
 struct LongSleep {
     uint32_t magic;
@@ -74,6 +83,34 @@ void sensorsOff(const Config& cfg) {
     digitalWrite(cfg.sensorPowerPin, LOW);
 }
 
+// The ESP8266 cannot hold a pin through deep sleep (the catalog keeps outputs out of it); in
+// light sleep its pins keep their level by themselves.
+void keepLevel(int8_t) {}
+void releaseLevel(int8_t) {}
+void holdLevels(bool) {}
+
+// No pin wakes the ESP8266 (only RST, used by its deep sleep timer).
+uint32_t activeInputs(const WakeInput*, uint8_t, bool) { return 0; }
+
+namespace {
+uint32_t nextRoundAt = 0;
+}
+
+void setNextRound(uint32_t inMs) { nextRoundAt = millis() + inMs; }
+int64_t untilNextRoundMs() { return int32_t(nextRoundAt - millis()); }
+
+ReportState& report() { return stored.state; }
+
+void loadReport(bool fresh) {
+    ESP.rtcUserMemoryRead(kReportSlot, reinterpret_cast<uint32_t*>(&stored), sizeof(stored));
+    if (fresh || stored.magic != kReportMagic) stored = {kReportMagic, {}};
+}
+
+void saveReport() {
+    stored.magic = kReportMagic;
+    ESP.rtcUserMemoryWrite(kReportSlot, reinterpret_cast<uint32_t*>(&stored), sizeof(stored));
+}
+
 uint32_t sleepMs(uint32_t intervalSeconds, uint32_t awakeMs) {
     uint32_t interval = intervalSeconds * 1000;
     return interval > awakeMs + 1000 ? interval - awakeMs : 1000;
@@ -108,8 +145,8 @@ void onWake() {
 }
 }  // namespace
 
-void lightSleep(const Config& cfg, uint32_t ms) {
-    status::line("SLEEP LIGHT %lu.%02lu", (unsigned long)(ms / 1000), (unsigned long)(ms % 1000 / 10));
+void lightSleep(const Config& cfg, uint32_t ms, const WakeInput*, uint8_t, bool quiet) {
+    if (!quiet) status::line("SLEEP LIGHT %lu.%02lu", (unsigned long)(ms / 1000), (unsigned long)(ms % 1000 / 10));
     status::flush();
     // Forced light sleep: radio off, CPU halted until the timer fires. The SDK timer is limited
     // to about 268 s per call, so longer waits are split. millis() stands still while the CPU
@@ -131,7 +168,7 @@ void lightSleep(const Config& cfg, uint32_t ms) {
     (void)cfg;
 }
 
-void deepSleep(const Config& cfg, uint32_t ms) {
+void deepSleep(const Config& cfg, uint32_t ms, const WakeInput*, uint8_t) {
     status::line("SLEEP DEEP %lu.%02lu", (unsigned long)(ms / 1000), (unsigned long)(ms % 1000 / 10));
     (void)cfg;
     sleepChunk(ms);

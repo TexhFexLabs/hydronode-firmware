@@ -30,18 +30,20 @@ template<class Fn> void restarted(Fn fn) {
     try { fn(); } catch (Restarted&) { reset = true; }
     TEST_ASSERT_TRUE(reset);
 }
+DriverContext awake{SleepMode::AlwaysOn, 300, 1, false, 0};
+// Answers, but its algorithm has nothing yet (or the sensor reads nothing).
 class GasDriver : public Driver {
 public:
     bool warming = false;
-    GasDriver(const DeviceConfig& dev) : Driver(dev) {}
-    bool begin() override { return false; }
-    bool continuous() const override { return true; }
+    GasDriver(const DeviceConfig& dev) : Driver(dev, awake) {}
+    bool begin(bool) override { return true; }
+    uint32_t tickMs() const override { return 1000; }
     void read(Reading* out) override { out[0] = {cfg_.channels[0].type, 0, false, warming}; }
 };
 class WifiDriver : public Driver {
 public:
-    WifiDriver(const DeviceConfig& dev) : Driver(dev) {}
-    bool begin() override { return true; }
+    WifiDriver(const DeviceConfig& dev) : Driver(dev, awake) {}
+    bool begin(bool) override { return true; }
     bool afterConnect() const override { return true; }
     void read(Reading* out) override { out[0] = {cfg_.channels[0].type, -50, true}; }
 };
@@ -50,7 +52,9 @@ void setUp() {
     fake::reset(); configBlock();
     ota::begin(cfg, makeResult(ConfigError::Ok, ""));
     for (auto& d : drivers) d = nullptr;
+    for (auto& b : begun) b = false;
     hydro = nullptr; roundIndex = 0;
+    coldSensors = true; poweredLong = false; poweredAt = 0; sensorsPowered = true;
 }
 void tearDown() { Ticker::callback = nullptr; }
 void test_interrupted_config_restoration_resumes_on_boot() {
@@ -181,6 +185,54 @@ void test_measurement_reports_broken_gas_and_missing_driver() {
     TEST_ASSERT_EQUAL_STRING("sgp40",report.failedDriver);
     hydro = nullptr;
 }
+// Counts what the round does with it.
+class CountingDriver : public Driver {
+public:
+    int begins = 0, starts = 0, reads = 0, sleeps = 0;
+    explicit CountingDriver(const DeviceConfig& dev) : Driver(dev, awake) {}
+    bool begin(bool) override { begins++; return true; }
+    uint32_t start() override { starts++; return 750; }
+    void read(Reading* out) override { reads++; out[0] = {cfg_.channels[0].type, 21.5f, true}; }
+    void sleep() override { sleeps++; }
+};
+void test_a_value_sent_every_second_round_wakes_its_sensor_every_second_round() {
+    cfg.channelPool[0].every = 2;
+    CountingDriver probe(cfg.devices[0]);
+    drivers[0] = &probe;
+    HydroNode client; hydro = &client;
+    // Deep sleep, timer wake-up without a power pin: the sensor slept powered and set up.
+    cfg.mode = SleepMode::DeepSleep;
+    coldSensors = false; poweredLong = true;
+    roundIndex = 1;
+    measureAndSend();
+    TEST_ASSERT_EQUAL(0, probe.begins);  // not due: not even woken
+    TEST_ASSERT_EQUAL(0, probe.reads);
+    roundIndex = 2;
+    uint32_t before = millis();
+    measureAndSend();
+    TEST_ASSERT_EQUAL(1, probe.begins);
+    TEST_ASSERT_EQUAL(1, probe.starts);
+    TEST_ASSERT_EQUAL(1, probe.reads);
+    TEST_ASSERT_EQUAL(1, probe.sleeps);  // back to its low power state after reading
+    TEST_ASSERT_TRUE(millis() - before >= 750);  // waited for the conversion
+    cfg.mode = SleepMode::AlwaysOn; cfg.channelPool[0].every = 1; hydro = nullptr;
+}
+void test_report_header_names_what_went_wrong() {
+    GasDriver gas(cfg.devices[0]);
+    strcpy(cfg.devices[0].driver, "sgp40");
+    drivers[0] = &gas;
+    HydroNode client; hydro = &client;
+    power::report().awakeMs = 4120;
+    measureAndSend();
+    std::string header = client.headers["X-Device-Report"];
+    TEST_ASSERT_TRUE_MESSAGE(header.find("awake=4120") != std::string::npos, header.c_str());
+    TEST_ASSERT_TRUE_MESSAGE(header.find("sens=sgp40:timeout") != std::string::npos, header.c_str());
+    gas.warming = true;
+    measureAndSend();
+    header = client.headers["X-Device-Report"];
+    TEST_ASSERT_TRUE_MESSAGE(header.find("sens=sgp40:warming") != std::string::npos, header.c_str());
+    hydro = nullptr;
+}
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_interrupted_config_restoration_resumes_on_boot);
@@ -193,5 +245,7 @@ int main() {
     RUN_TEST(test_offer_cancelled_during_pulse_is_never_carried_out);
     RUN_TEST(test_later_answer_without_offer_drops_it_within_the_round);
     RUN_TEST(test_measurement_reports_broken_gas_and_missing_driver);
+    RUN_TEST(test_a_value_sent_every_second_round_wakes_its_sensor_every_second_round);
+    RUN_TEST(test_report_header_names_what_went_wrong);
     return UNITY_END();
 }

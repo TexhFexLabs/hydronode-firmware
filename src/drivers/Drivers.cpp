@@ -45,19 +45,38 @@
 #include <SoftwareSerial.h>
 #else
 #include <WiFi.h>
+#include <esp_attr.h>
 #endif
 
 #include "Driver.h"
+#include "power/Power.h"
+#include "power/Schedule.h"
 #include "status/Status.h"
+
+// Every driver follows the same round: begin() once per boot, then per due round start() →
+// (nap) → poll() → read() → sleep(). Sensors that can measure on request do so and power down in
+// between; the ones that cannot say so in the catalog's sleep rules, which keep them out of the
+// power modes they do not work in. Waits the sensor needs (a conversion, a fan run-up, a CO₂
+// shot) are returned from start()/poll() instead of delay(), so the board naps meanwhile.
 
 namespace hn {
 
-void Driver::fill(Reading* out, const char* q, float value, bool ok, bool warming) const {
+void Driver::fill(Reading* out, const char* q, float value, bool ok, bool warming) {
     for (uint8_t i = 0; i < cfg_.channelCount; i++) {
         if (strcmp(cfg_.channels[i].q, q) == 0) {
-            out[i] = {cfg_.channels[i].type, value, ok && isfinite(value), warming};
+            bool valid = ok && isfinite(value);
+            out[i] = {cfg_.channels[i].type, value, valid, warming};
+            if (ok && !valid && !problem_) problem_ = problem::kRange;
+            if (warming && !problem_) problem_ = problem::kWarming;
         }
     }
+}
+
+bool Driver::sends(const char* q) const {
+    for (uint8_t i = 0; i < cfg_.channelCount; i++) {
+        if (strcmp(cfg_.channels[i].q, q) == 0) return true;
+    }
+    return false;
 }
 
 Ambient& ambient() {
@@ -79,11 +98,11 @@ bool parseRom(const char* hex, DeviceAddress out) {
 
 class Ds18b20 : public Driver {
 public:
-    explicit Ds18b20(const DeviceConfig& cfg) : Driver(cfg), wire_(cfg.pin), sensors_(&wire_) {}
+    Ds18b20(const DeviceConfig& cfg, const DriverContext& ctx) : Driver(cfg, ctx), wire_(cfg.pin), sensors_(&wire_) {}
 
-    bool begin() override {
+    bool begin(bool) override {
         sensors_.begin();
-        sensors_.setWaitForConversion(true);
+        sensors_.setWaitForConversion(false);  // the board naps during the 750 ms conversion
         uint8_t count = sensors_.getDeviceCount();
         // Print every ROM address so the web app can map probes to types.
         DeviceAddress addr;
@@ -93,11 +112,16 @@ public:
                              addr[2], addr[3], addr[4], addr[5], addr[6], addr[7]);
             }
         }
+        if (count == 0) setProblem(problem::kMissing);
         return count > 0;
     }
 
-    void read(Reading* out) override {
+    uint32_t start() override {
         sensors_.requestTemperatures();
+        return 760;  // 12 bit conversion
+    }
+
+    void read(Reading* out) override {
         for (uint8_t i = 0; i < cfg_.channelCount; i++) {
             const ChannelConfig& ch = cfg_.channels[i];
             float t = DEVICE_DISCONNECTED_C;
@@ -108,12 +132,11 @@ public:
             } else {
                 t = sensors_.getTempCByIndex(ch.index < 0 ? i : ch.index);
             }
-            out[i] = {ch.type, t, t != DEVICE_DISCONNECTED_C && t > -55.5f && t < 125.5f};
+            bool ok = t != DEVICE_DISCONNECTED_C && t > -55.5f && t < 125.5f;
+            if (!ok) setProblem(t == DEVICE_DISCONNECTED_C ? problem::kTimeout : problem::kRange);
+            out[i] = {ch.type, t, ok};
         }
     }
-
-    // requestTemperatures() waits for the 750 ms conversion itself.
-    uint32_t warmupMs() const override { return 10; }
 
 private:
     OneWire wire_;
@@ -124,22 +147,23 @@ private:
 
 class Dht : public Driver {
 public:
-    explicit Dht(const DeviceConfig& cfg) : Driver(cfg), dht_(cfg.pin, model(cfg)) {}
+    Dht(const DeviceConfig& cfg, const DriverContext& ctx) : Driver(cfg, ctx), dht_(cfg.pin, model(cfg)) {}
 
-    bool begin() override {
+    bool begin(bool) override {
         dht_.begin();
-        return true;
+        return true;  // a DHT has no "are you there"; a failed read says it
     }
 
     void read(Reading* out) override {
         float t = dht_.readTemperature(false, true);
         float rh = dht_.readHumidity();
+        if (isnan(t) && isnan(rh)) setProblem(problem::kTimeout);
         fill(out, "t", t, !isnan(t));
         fill(out, "rh", rh, !isnan(rh));
     }
 
     // Datasheets: no command within 1 s after power-up.
-    uint32_t warmupMs() const override { return 1200; }
+    uint32_t powerUpMs() const override { return 1200; }
 
 private:
     static uint8_t model(const DeviceConfig& cfg) {
@@ -151,27 +175,32 @@ private:
 };
 
 // --- I2C sensors -----------------------------------------------------------------
+// Most of these measure on request and sleep in between by themselves (single shot, forced or
+// one-time modes); their begin() only checks that they answer.
 
 class Sht4x : public Driver {
 public:
-    Sht4x(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Sht4x(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
 
-    bool begin() override {
+    bool begin(bool cold) override {
         sht_.begin(*bus_, cfg_.address);
-        sht_.softReset();
-        delay(10);
+        if (cold) {
+            sht_.softReset();
+            delay(2);
+        }
         uint32_t serial = 0;
-        return sht_.serialNumber(serial) == 0;
+        bool ok = sht_.serialNumber(serial) == 0;
+        if (!ok) setProblem(problem::kMissing);
+        return ok;
     }
 
     void read(Reading* out) override {
         float t = NAN, rh = NAN;
         bool ok = sht_.measureHighPrecision(t, rh) == 0;
+        if (!ok) setProblem(problem::kTimeout);
         fill(out, "t", t, ok);
         fill(out, "rh", rh, ok);
     }
-
-    uint32_t warmupMs() const override { return 10; }
 
 private:
     TwoWire* bus_;
@@ -180,18 +209,21 @@ private:
 
 class Sht3x : public Driver {
 public:
-    Sht3x(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), sht_(bus) {}
+    Sht3x(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), sht_(bus) {}
 
-    bool begin() override { return sht_.begin(cfg_.address); }
+    bool begin(bool) override {
+        bool ok = sht_.begin(cfg_.address);
+        if (!ok) setProblem(problem::kMissing);
+        return ok;
+    }
 
     void read(Reading* out) override {
         float t = NAN, rh = NAN;
         bool ok = sht_.readBoth(&t, &rh);
+        if (!ok) setProblem(problem::kTimeout);
         fill(out, "t", t, ok);
         fill(out, "rh", rh, ok);
     }
-
-    uint32_t warmupMs() const override { return 10; }
 
 private:
     Adafruit_SHT31 sht_;
@@ -199,18 +231,23 @@ private:
 
 class Aht : public Driver {
 public:
-    Aht(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Aht(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
 
-    bool begin() override { return aht_.begin(bus_, 0, cfg_.address); }
+    bool begin(bool) override {
+        bool ok = aht_.begin(bus_, 0, cfg_.address);
+        if (!ok) setProblem(problem::kMissing);
+        return ok;
+    }
 
     void read(Reading* out) override {
         sensors_event_t humidity, temp;
         bool ok = aht_.getEvent(&humidity, &temp);
+        if (!ok) setProblem(problem::kTimeout);
         fill(out, "t", temp.temperature, ok);
         fill(out, "rh", humidity.relative_humidity, ok);
     }
 
-    uint32_t warmupMs() const override { return 40; }
+    uint32_t powerUpMs() const override { return 40; }
 
 private:
     TwoWire* bus_;
@@ -219,18 +256,23 @@ private:
 
 class Htu21d : public Driver {
 public:
-    Htu21d(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Htu21d(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
 
-    bool begin() override { return htu_.begin(bus_); }
+    bool begin(bool) override {
+        bool ok = htu_.begin(bus_);
+        if (!ok) setProblem(problem::kMissing);
+        return ok;
+    }
 
     void read(Reading* out) override {
         float t = htu_.readTemperature();
         float rh = htu_.readHumidity();
+        if (isnan(t) && isnan(rh)) setProblem(problem::kTimeout);
         fill(out, "t", t, !isnan(t));
         fill(out, "rh", rh, !isnan(rh));
     }
 
-    uint32_t warmupMs() const override { return 15; }
+    uint32_t powerUpMs() const override { return 15; }
 
 private:
     TwoWire* bus_;
@@ -239,27 +281,28 @@ private:
 
 class Bme280 : public Driver {
 public:
-    Bme280(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Bme280(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
 
     // Bosch's "weather monitoring" setting: forced mode, 1x oversampling, no filter. The sensor
     // sleeps between readings, which keeps self-heating and current down.
-    bool begin() override {
+    bool begin(bool) override {
         ok_ = bme_.begin(cfg_.address, bus_);
         if (ok_) {
             bme_.setSampling(Adafruit_BME280::MODE_FORCED, Adafruit_BME280::SAMPLING_X1, Adafruit_BME280::SAMPLING_X1,
                              Adafruit_BME280::SAMPLING_X1, Adafruit_BME280::FILTER_OFF);
+        } else {
+            setProblem(problem::kMissing);
         }
         return ok_;
     }
 
     void read(Reading* out) override {
         bool ok = ok_ && bme_.takeForcedMeasurement();
+        if (!ok) setProblem(problem::kTimeout);
         fill(out, "t", bme_.readTemperature(), ok);
         fill(out, "rh", bme_.readHumidity(), ok);
         fill(out, "p", bme_.readPressure() / 100.0f, ok);
     }
-
-    uint32_t warmupMs() const override { return 10; }
 
 private:
     TwoWire* bus_;
@@ -269,24 +312,25 @@ private:
 
 class Bmp280 : public Driver {
 public:
-    Bmp280(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bmp_(bus) {}
+    Bmp280(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bmp_(bus) {}
 
-    bool begin() override {
+    bool begin(bool) override {
         ok_ = bmp_.begin(cfg_.address);
         if (ok_) {
             bmp_.setSampling(Adafruit_BMP280::MODE_FORCED, Adafruit_BMP280::SAMPLING_X1, Adafruit_BMP280::SAMPLING_X1,
                              Adafruit_BMP280::FILTER_OFF);
+        } else {
+            setProblem(problem::kMissing);
         }
         return ok_;
     }
 
     void read(Reading* out) override {
         bool ok = ok_ && bmp_.takeForcedMeasurement();
+        if (!ok) setProblem(problem::kTimeout);
         fill(out, "t", bmp_.readTemperature(), ok);
         fill(out, "p", bmp_.readPressure() / 100.0f, ok);
     }
-
-    uint32_t warmupMs() const override { return 10; }
 
 private:
     Adafruit_BMP280 bmp_;
@@ -295,48 +339,61 @@ private:
 
 class Bh1750 : public Driver {
 public:
-    Bh1750(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus), meter_(cfg.address) {}
+    Bh1750(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus), meter_(cfg.address) {}
 
     // One-time mode: the sensor measures once and powers down, instead of drawing 120 µA nonstop.
-    bool begin() override { return meter_.begin(BH1750::ONE_TIME_HIGH_RES_MODE, cfg_.address, bus_); }
+    bool begin(bool) override {
+        ok_ = meter_.begin(BH1750::ONE_TIME_HIGH_RES_MODE, cfg_.address, bus_);
+        if (!ok_) setProblem(problem::kMissing);
+        return ok_;
+    }
+
+    uint32_t start() override {
+        started_ = ok_ && meter_.configure(BH1750::ONE_TIME_HIGH_RES_MODE);
+        return started_ ? 180 : 0;  // high resolution conversion, at most 180 ms
+    }
 
     void read(Reading* out) override {
-        bool ok = meter_.configure(BH1750::ONE_TIME_HIGH_RES_MODE);
-        for (uint32_t start = millis(); ok && !meter_.measurementReady() && millis() - start < 300;) delay(10);
-        float lux = ok ? meter_.readLightLevel() : -1;
+        float lux = started_ ? meter_.readLightLevel() : -1;
+        if (lux < 0) setProblem(problem::kTimeout);
         fill(out, "lux", lux, lux >= 0);
     }
 
 private:
     TwoWire* bus_;
     BH1750 meter_;
+    bool ok_ = false;
+    bool started_ = false;
 };
 
 class Bme680 : public Driver {
 public:
-    Bme680(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bme_(bus) {}
+    Bme680(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bme_(bus) {}
 
-    bool begin() override {
+    bool begin(bool) override {
         ok_ = bme_.begin(cfg_.address);
         if (ok_) {
             bme_.setTemperatureOversampling(BME680_OS_2X);
             bme_.setHumidityOversampling(BME680_OS_1X);
             bme_.setPressureOversampling(BME680_OS_4X);
             bme_.setIIRFilterSize(BME680_FILTER_SIZE_0);
-            bme_.setGasHeater(320, 150);  // 320 °C for 150 ms, Bosch's default profile
+            // 320 °C for 150 ms, Bosch's default profile. Without a gas value, no heater at all.
+            if (sends("gas")) bme_.setGasHeater(320, 150);
+            else bme_.setGasHeater(0, 0);
+        } else {
+            setProblem(problem::kMissing);
         }
         return ok_;
     }
 
     void read(Reading* out) override {
         bool ok = ok_ && bme_.performReading();
+        if (!ok) setProblem(problem::kTimeout);
         fill(out, "t", bme_.temperature, ok);
         fill(out, "rh", bme_.humidity, ok);
         fill(out, "p", bme_.pressure / 100.0f, ok);
         fill(out, "gas", bme_.gas_resistance / 1000.0f, ok && bme_.gas_resistance > 0);
     }
-
-    uint32_t warmupMs() const override { return 10; }
 
 private:
     Adafruit_BME680 bme_;
@@ -347,18 +404,20 @@ private:
 uint16_t rhTicks(float rh) { return isnan(rh) ? 0x8000 : uint16_t(constrain(rh, 0.0f, 100.0f) * 65535.0f / 100.0f); }
 uint16_t tTicks(float t) { return isnan(t) ? 0x6666 : uint16_t((constrain(t, -45.0f, 130.0f) + 45.0f) * 65535.0f / 175.0f); }
 
+// SGP30: one reading per second keeps its baseline; only offered with Always on and Modem sleep.
 class Sgp30 : public Driver {
 public:
-    Sgp30(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Sgp30(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
 
-    bool begin() override {
+    bool begin(bool) override {
         ok_ = sgp_.begin(bus_) && sgp_.IAQinit();
         started_ = millis();
         measured_ = ok_;  // initialization already confirmed sensor communication
+        if (!ok_) setProblem(problem::kMissing);
         return ok_;
     }
 
-    bool continuous() const override { return true; }
+    uint32_t tickMs() const override { return 1000; }
 
     void tick() override {
         if (!ok_) return;
@@ -375,6 +434,7 @@ public:
         // The first 15 s after IAQinit() report the fixed start values 400 ppm / 0 ppb.
         bool ok = ok_ && measured_ && millis() - started_ > 15000;
         bool warming = ok_ && measured_ && millis() - started_ <= 15000;
+        if (ok_ && !measured_) setProblem(problem::kTimeout);
         fill(out, "eco2", sgp_.eCO2, ok, warming);
         fill(out, "tvoc", sgp_.TVOC, ok, warming);
     }
@@ -387,16 +447,23 @@ private:
     bool measured_ = false;
 };
 
+// Light sleep: Sensirion's low-power mode, one reading every 10 s with the heater off in
+// between (the VOC algorithm is specified for 1 s and 10 s). Awake: one reading per second.
+uint32_t gasTickMs(const DriverContext& ctx) { return ctx.mode == SleepMode::LightSleep ? 10000 : 1000; }
+
 class Sgp40 : public Driver {
 public:
-    Sgp40(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Sgp40(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus)
+        : Driver(cfg, ctx), bus_(bus), algorithm_(gasTickMs(ctx) / 1000.0f) {}
 
-    bool begin() override {
+    bool begin(bool) override {
         started_ = millis();
-        return sampled_ = ok_ = sgp_.begin(bus_);
+        sampled_ = ok_ = sgp_.begin(bus_);
+        if (!ok_) setProblem(problem::kMissing);
+        return ok_;
     }
 
-    bool continuous() const override { return true; }
+    uint32_t tickMs() const override { return gasTickMs(ctx_); }
 
     void tick() override {
         if (!ok_) return;
@@ -404,12 +471,15 @@ public:
         uint16_t raw = sgp_.measureRaw(isnan(a.t) ? 25.0f : a.t, isnan(a.rh) ? 50.0f : a.rh);
         sampled_ = raw != 0;
         if (sampled_) voc_ = algorithm_.process(raw);
+        if (ctx_.mode == SleepMode::LightSleep) sgp_.heaterOff();
     }
 
-    // The VOC index is 0 while the algorithm learns the room (about the first 45 s).
+    // The VOC index is 0 while the algorithm learns the room (about the first 45 readings).
     void read(Reading* out) override {
         bool healthy = ok_ && sampled_;
-        fill(out, "voc", voc_, healthy && voc_ > 0, healthy && voc_ == 0 && millis() - started_ < 60000);
+        if (ok_ && !sampled_) setProblem(problem::kTimeout);
+        uint32_t learning = 60 * tickMs();
+        fill(out, "voc", voc_, healthy && voc_ > 0, healthy && voc_ == 0 && millis() - started_ < learning);
     }
 
 private:
@@ -424,25 +494,28 @@ private:
 
 class Sgp41 : public Driver {
 public:
-    Sgp41(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Sgp41(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus)
+        : Driver(cfg, ctx), bus_(bus), vocAlgorithm_(gasTickMs(ctx) / 1000.0f) {}
 
-    bool begin() override {
+    bool begin(bool) override {
         sgp_.begin(*bus_);
         uint16_t serial[3];
         ok_ = sgp_.getSerialNumber(serial) == 0;
         sampled_ = ok_;
         started_ = millis();
         conditioning_ = 10;  // seconds of NOx conditioning after power-up, per datasheet
+        if (!ok_) setProblem(problem::kMissing);
         return ok_;
     }
 
-    bool continuous() const override { return true; }
+    uint32_t tickMs() const override { return gasTickMs(ctx_); }
 
     void tick() override {
         if (!ok_) return;
         const Ambient& a = ambient();
         uint16_t srawVoc = 0, srawNox = 0;
-        if (conditioning_ > 0) {
+        bool lowPower = ctx_.mode == SleepMode::LightSleep;  // VOC only (catalog: NOx needs 1 s)
+        if (conditioning_ > 0 && !lowPower) {
             conditioning_--;
             sampled_ = sgp_.executeConditioning(rhTicks(a.rh), tTicks(a.t), srawVoc) == 0;
             return;
@@ -450,14 +523,16 @@ public:
         sampled_ = sgp_.measureRawSignals(rhTicks(a.rh), tTicks(a.t), srawVoc, srawNox) == 0;
         if (sampled_) {
             voc_ = vocAlgorithm_.process(srawVoc);
-            nox_ = noxAlgorithm_.process(srawNox);
+            if (!lowPower) nox_ = noxAlgorithm_.process(srawNox);
         }
+        if (lowPower) sgp_.turnHeaterOff();
     }
 
-    // Both indices stay 0 while their algorithm learns (VOC ~45 s, NOx ~5 min).
+    // Both indices stay 0 while their algorithm learns (VOC ~45 readings, NOx ~5 min).
     void read(Reading* out) override {
         bool healthy = ok_ && sampled_;
-        fill(out, "voc", voc_, healthy && voc_ > 0, healthy && voc_ == 0 && millis() - started_ < 60000);
+        if (ok_ && !sampled_) setProblem(problem::kTimeout);
+        fill(out, "voc", voc_, healthy && voc_ > 0, healthy && voc_ == 0 && millis() - started_ < 60 * tickMs());
         fill(out, "nox", nox_, healthy && nox_ > 0, healthy && nox_ == 0 && millis() - started_ < 360000);
     }
 
@@ -474,19 +549,68 @@ private:
     bool ok_ = false;
 };
 
+// SCD40/SCD41. An SCD41 in a sleeping mode measures on request: wake up, one shot that is thrown
+// away (Sensirion: the first after waking is less accurate), a second shot that is kept, power
+// down to 0.4 µA. Its self-calibration counts shots and assumes one every 5 min, so the periods
+// are scaled to the real spacing. Otherwise (SCD40, awake modes) it measures every 5 s on its own.
 class Scd4x : public Driver {
 public:
-    // Deep sleep restarts the board for every reading: the SCD41 then measures once on request
-    // (single shot). Otherwise the sensor measures every 5 s on its own and keeps calibrating.
-    Scd4x(const DeviceConfig& cfg, TwoWire* bus, bool singleShot) : Driver(cfg), bus_(bus), singleShot_(singleShot) {}
+    Scd4x(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus)
+        : Driver(cfg, ctx), bus_(bus),
+          singleShot_(ctx.sleeps() && strcmp(cfg.text("model", "SCD41"), "SCD41") == 0) {}
 
-    bool begin() override {
+    bool begin(bool cold) override {
         scd_.begin(*bus_, cfg_.address);
-        scd_.wakeUp();
-        ok_ = scd_.stopPeriodicMeasurement() == 0;  // in case it still runs from before a reset
+        // Asleep since its last round and set up at power-on: start() wakes it. A missing sensor
+        // then fails its shot and says so.
+        if (singleShot_ && !cold) return ok_ = true;
+        if (singleShot_) {
+            scd_.wakeUp();  // not acknowledged; stopping the measurement below proves it is awake
+            delay(30);
+        }
+        uint16_t error = scd_.stopPeriodicMeasurement();  // in case it still runs from before a reset
+        if (error) {
+            setProblem(problem::kMissing);
+            return ok_ = false;
+        }
         delay(500);
-        if (ok_ && !singleShot_) ok_ = scd_.startPeriodicMeasurement() == 0;
+        ok_ = true;
+        if (singleShot_) {
+            // Volatile settings: set again after every power-up.
+            if (cold) {
+                schedule::AscPeriods asc = schedule::scd41AscPeriods(ctx_.dueSeconds());
+                scd_.setAutomaticSelfCalibrationInitialPeriod(asc.initialHours);
+                scd_.setAutomaticSelfCalibrationStandardPeriod(asc.standardHours);
+            }
+        } else {
+            ok_ = scd_.startPeriodicMeasurement() == 0;
+            startedAt_ = millis();
+        }
         return ok_;
+    }
+
+    uint32_t start() override {
+        if (!ok_) return 0;
+        if (singleShot_) {
+            scd_.wakeUp();
+            delay(30);
+            shot_ = 1;
+            return scd_.measureSingleShot() == 0 ? 5000 : 0;
+        }
+        // Periodic: the first result arrives 5 s after the start.
+        uint32_t since = millis() - startedAt_;
+        return since < 5000 ? 5000 - since : 0;
+    }
+
+    uint32_t poll() override {
+        if (singleShot_ && shot_ == 1) {
+            uint16_t co2 = 0;
+            float t, rh;
+            scd_.readMeasurement(co2, t, rh);  // the first shot after waking up: discarded
+            shot_ = 2;
+            return scd_.measureSingleShot() == 0 ? 5000 : 0;
+        }
+        return 0;
     }
 
     void read(Reading* out) override {
@@ -494,7 +618,7 @@ public:
         float t = NAN, rh = NAN;
         bool ok = false;
         if (ok_ && singleShot_) {
-            ok = scd_.measureAndReadSingleShot(co2, t, rh) == 0;
+            ok = shot_ == 2 && scd_.readMeasurement(co2, t, rh) == 0;
         } else if (ok_) {
             bool ready = false;
             for (uint32_t start = millis(); millis() - start < 6000; delay(100)) {
@@ -502,35 +626,52 @@ public:
             }
             ok = ready && scd_.readMeasurement(co2, t, rh) == 0;
         }
+        if (ok_ && !ok) setProblem(problem::kTimeout);
         ok = ok && co2 > 0;
         fill(out, "co2", co2, ok);
         fill(out, "t", t, ok);
         fill(out, "rh", rh, ok);
     }
 
-    // The first periodic result arrives 5 s after the start.
-    uint32_t warmupMs() const override { return singleShot_ ? 0 : 5000; }
+    void sleep() override {
+        if (singleShot_ && ok_) scd_.powerDown();
+        shot_ = 0;
+    }
+
+    uint32_t bootMs() const override { return 1000; }
 
 private:
     TwoWire* bus_;
     SensirionI2cScd4x scd_;
     bool singleShot_;
     bool ok_ = false;
+    uint8_t shot_ = 0;
+    uint32_t startedAt_ = 0;
 };
 
 class Veml7700 : public Driver {
 public:
-    Veml7700(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Veml7700(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
 
-    bool begin() override { return ok_ = veml_.begin(bus_); }
-
-    void read(Reading* out) override {
-        // Picks gain and integration time for the current light, from moonlight to sunlight.
-        float lux = ok_ ? veml_.readLux(VEML_LUX_AUTO) : -1;
-        fill(out, "lux", lux, lux >= 0);
+    bool begin(bool) override {
+        ok_ = veml_.begin(bus_);
+        if (ok_) veml_.enable(false);  // shut down: 0.5 µA until the next reading
+        else setProblem(problem::kMissing);
+        return ok_;
     }
 
-    uint32_t warmupMs() const override { return 5; }
+    void read(Reading* out) override {
+        float lux = -1;
+        if (ok_) {
+            veml_.enable(true);
+            delay(3);  // wake-up time from shutdown
+            // Picks gain and integration time for the current light, from moonlight to sunlight.
+            lux = veml_.readLux(VEML_LUX_AUTO);
+            veml_.enable(false);
+        }
+        if (ok_ && lux < 0) setProblem(problem::kTimeout);
+        fill(out, "lux", lux, lux >= 0);
+    }
 
 private:
     TwoWire* bus_;
@@ -540,25 +681,30 @@ private:
 
 class Ina219 : public Driver {
 public:
-    Ina219(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus), ina_(cfg.address) {}
+    Ina219(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus), ina_(cfg.address) {}
 
-    bool begin() override {
+    bool begin(bool) override {
         ok_ = ina_.begin(bus_);
         const OptionValue* range = cfg_.option("range");
         if (ok_ && range && strcmp(range->text, "32V_1A") == 0) ina_.setCalibration_32V_1A();
         else if (ok_ && range && strcmp(range->text, "16V_400mA") == 0) ina_.setCalibration_16V_400mA();
+        if (ok_) ina_.powerSave(true);
+        else setProblem(problem::kMissing);
         return ok_;
     }
 
     void read(Reading* out) override {
+        if (ok_) {
+            ina_.powerSave(false);
+            delay(2);  // one 12 bit conversion of shunt and bus: 2 × 532 µs
+        }
         // Load voltage: bus voltage plus the drop over the shunt.
         float volts = ina_.getBusVoltage_V() + ina_.getShuntVoltage_mV() / 1000.0f;
         fill(out, "v", volts, ok_);
         fill(out, "i", ina_.getCurrent_mA() / 1000.0f, ok_);
         fill(out, "w", ina_.getPower_mW() / 1000.0f, ok_);
+        if (ok_) ina_.powerSave(true);
     }
-
-    uint32_t warmupMs() const override { return 5; }
 
 private:
     TwoWire* bus_;
@@ -568,19 +714,24 @@ private:
 
 class Ms8607 : public Driver {
 public:
-    Ms8607(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Ms8607(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
 
-    bool begin() override { return ok_ = ms_.begin(bus_); }
+    bool begin(bool) override {
+        ok_ = ms_.begin(bus_);
+        if (!ok_) setProblem(problem::kMissing);
+        return ok_;
+    }
 
     void read(Reading* out) override {
         sensors_event_t t, p, rh;
         bool ok = ok_ && ms_.getEvent(&p, &t, &rh);
+        if (ok_ && !ok) setProblem(problem::kTimeout);
         fill(out, "t", t.temperature, ok);
         fill(out, "rh", rh.relative_humidity, ok);
         fill(out, "p", p.pressure, ok);
     }
 
-    uint32_t warmupMs() const override { return 15; }
+    uint32_t powerUpMs() const override { return 15; }
 
 private:
     TwoWire* bus_;
@@ -590,27 +741,28 @@ private:
 
 class Bmp3xx : public Driver {
 public:
-    Bmp3xx(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Bmp3xx(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
 
     // performReading() runs one forced measurement; 2x pressure, 1x temperature, no filter is
     // Bosch's weather setting.
-    bool begin() override {
+    bool begin(bool) override {
         ok_ = bmp_.begin_I2C(cfg_.address, bus_);
         if (ok_) {
             bmp_.setTemperatureOversampling(BMP3_NO_OVERSAMPLING);
             bmp_.setPressureOversampling(BMP3_OVERSAMPLING_2X);
             bmp_.setIIRFilterCoeff(BMP3_IIR_FILTER_DISABLE);
+        } else {
+            setProblem(problem::kMissing);
         }
         return ok_;
     }
 
     void read(Reading* out) override {
         bool ok = ok_ && bmp_.performReading();
+        if (ok_ && !ok) setProblem(problem::kTimeout);
         fill(out, "t", bmp_.temperature, ok);
         fill(out, "p", bmp_.pressure / 100.0, ok);
     }
-
-    uint32_t warmupMs() const override { return 10; }
 
 private:
     TwoWire* bus_;
@@ -618,32 +770,44 @@ private:
     bool ok_ = false;
 };
 
+// Command mode: one temperature and one pressure measurement on request, standby (0.5 µA) in
+// between, instead of measuring once per second all the time.
 class Dps310 : public Driver {
 public:
-    Dps310(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Dps310(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
 
-    bool begin() override {
+    bool begin(bool) override {
         ok_ = dps_.begin_I2C(cfg_.address, bus_);
         if (ok_) {
             dps_.configurePressure(DPS310_1HZ, DPS310_8SAMPLES);
             dps_.configureTemperature(DPS310_1HZ, DPS310_2SAMPLES);
-            dps_.setMode(DPS310_CONT_PRESTEMP);
+            dps_.setMode(DPS310_IDLE);
+        } else {
+            setProblem(problem::kMissing);
         }
         return ok_;
     }
 
     void read(Reading* out) override {
-        bool ok = ok_;
-        for (uint32_t start = millis(); ok && !dps_.pressureAvailable(); delay(10)) {
-            if (millis() - start > 1500) ok = false;
-        }
+        bool ok = ok_ && measure(DPS310_ONE_TEMPERATURE, true) && measure(DPS310_ONE_PRESSURE, false);
         sensors_event_t t, p;
         ok = ok && dps_.getEvents(&t, &p);
+        if (ok_ && !ok) setProblem(problem::kTimeout);
         fill(out, "t", t.temperature, ok);
         fill(out, "p", p.pressure, ok);
     }
 
+    uint32_t powerUpMs() const override { return 40; }
+
 private:
+    bool measure(dps310_mode_t mode, bool temperature) {
+        dps_.setMode(mode);
+        for (uint32_t start = millis(); millis() - start < 200; delay(5)) {
+            if (temperature ? dps_.temperatureAvailable() : dps_.pressureAvailable()) return true;
+        }
+        return false;
+    }
+
     TwoWire* bus_;
     Adafruit_DPS310 dps_;
     bool ok_ = false;
@@ -651,23 +815,23 @@ private:
 
 class Lps22 : public Driver {
 public:
-    Lps22(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Lps22(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
 
     // One-shot: the sensor measures on request and powers down in between.
-    bool begin() override {
+    bool begin(bool) override {
         ok_ = lps_.begin_I2C(cfg_.address, bus_);
         if (ok_) lps_.setDataRate(LPS22_RATE_ONE_SHOT);
+        else setProblem(problem::kMissing);
         return ok_;
     }
 
     void read(Reading* out) override {
         sensors_event_t p, t;
         bool ok = ok_ && lps_.getEvent(&p, &t);
+        if (ok_ && !ok) setProblem(problem::kTimeout);
         fill(out, "t", t.temperature, ok);
         fill(out, "p", p.pressure, ok);
     }
-
-    uint32_t warmupMs() const override { return 10; }
 
 private:
     TwoWire* bus_;
@@ -677,18 +841,22 @@ private:
 
 class Shtc3 : public Driver {
 public:
-    Shtc3(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Shtc3(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
 
-    bool begin() override { return ok_ = shtc_.begin(bus_); }
+    // The library wakes the sensor for each measurement and puts it back to sleep.
+    bool begin(bool) override {
+        ok_ = shtc_.begin(bus_);
+        if (!ok_) setProblem(problem::kMissing);
+        return ok_;
+    }
 
     void read(Reading* out) override {
         sensors_event_t rh, t;
         bool ok = ok_ && shtc_.getEvent(&rh, &t);
+        if (ok_ && !ok) setProblem(problem::kTimeout);
         fill(out, "t", t.temperature, ok);
         fill(out, "rh", rh.relative_humidity, ok);
     }
-
-    uint32_t warmupMs() const override { return 10; }
 
 private:
     TwoWire* bus_;
@@ -698,27 +866,30 @@ private:
 
 class Mcp9808 : public Driver {
 public:
-    Mcp9808(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Mcp9808(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
 
     // 0.0625 °C resolution (250 ms conversion); shut down between readings.
-    bool begin() override {
+    bool begin(bool) override {
         ok_ = mcp_.begin(cfg_.address, bus_);
         if (ok_) {
             mcp_.setResolution(3);
             mcp_.shutdown();
+        } else {
+            setProblem(problem::kMissing);
         }
         return ok_;
     }
 
-    void read(Reading* out) override {
-        if (!ok_) {
-            fill(out, "t", NAN, false);
-            return;
-        }
+    uint32_t start() override {
+        if (!ok_) return 0;
         mcp_.wake();
-        delay(260);
-        float t = mcp_.readTempC();
-        mcp_.shutdown();
+        return 260;
+    }
+
+    void read(Reading* out) override {
+        float t = ok_ ? mcp_.readTempC() : NAN;
+        if (ok_) mcp_.shutdown();
+        if (ok_ && isnan(t)) setProblem(problem::kTimeout);
         fill(out, "t", t, !isnan(t));
     }
 
@@ -728,41 +899,66 @@ private:
     bool ok_ = false;
 };
 
+// One-shot with 8 averages (125 ms), shut down in between: 0.25 µA instead of measuring nonstop.
 class Tmp117 : public Driver {
 public:
-    Tmp117(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Tmp117(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
 
-    bool begin() override { return ok_ = tmp_.begin(cfg_.address, bus_); }
+    bool begin(bool) override {
+        ok_ = tmp_.begin(cfg_.address, bus_);
+        if (ok_) {
+            tmp_.setAveragedSampleCount(TMP117_AVERAGE_8X);
+            tmp_.setReadDelay(TMP117_DELAY_0_MS);
+            tmp_.setMeasurementMode(TMP117_MODE_SHUTDOWN);
+        } else {
+            setProblem(problem::kMissing);
+        }
+        return ok_;
+    }
+
+    uint32_t start() override {
+        if (!ok_) return 0;
+        tmp_.setMeasurementMode(TMP117_MODE_ONE_SHOT);
+        return 130;
+    }
+
+    uint32_t poll() override {
+        // A slow conversion: ask again shortly, at most a few times.
+        if (ok_ && !tmp_.dataReady() && polls_++ < 5) return 20;
+        polls_ = 0;
+        return 0;
+    }
 
     void read(Reading* out) override {
         sensors_event_t t;
         bool ok = ok_ && tmp_.getEvent(&t);
+        if (ok_ && !ok) setProblem(problem::kTimeout);
         fill(out, "t", t.temperature, ok);
     }
-
-    // Continuous mode with 8 averages delivers a value every second.
-    uint32_t warmupMs() const override { return 1100; }
 
 private:
     TwoWire* bus_;
     Adafruit_TMP117 tmp_;
     bool ok_ = false;
+    uint8_t polls_ = 0;
 };
 
 class Tsl2591 : public Driver {
 public:
-    Tsl2591(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Tsl2591(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
 
-    bool begin() override {
+    bool begin(bool) override {
         ok_ = tsl_.begin(bus_, cfg_.address);
         if (ok_) {
             tsl_.setTiming(TSL2591_INTEGRATIONTIME_100MS);
             tsl_.disable();
+        } else {
+            setProblem(problem::kMissing);
         }
         return ok_;
     }
 
-    // Starts at medium gain and steps down while the sensor saturates, from shade to full sun.
+    // Starts at high gain and steps down while the sensor saturates, from shade to full sun.
     void read(Reading* out) override {
         if (!ok_) {
             fill(out, "lux", NAN, false);
@@ -781,6 +977,7 @@ public:
                 break;
             }
         }
+        if (isnan(lux)) setProblem(problem::kRange);
         fill(out, "lux", lux, !isnan(lux) && lux >= 0);
     }
 
@@ -792,27 +989,29 @@ private:
 
 class Ltr390 : public Driver {
 public:
-    Ltr390(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Ltr390(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
 
-    bool begin() override {
+    bool begin(bool) override {
         ok_ = ltr_.begin(bus_);
         if (ok_) {
             ltr_.setGain(LTR390_GAIN_3);
             ltr_.setResolution(LTR390_RESOLUTION_18BIT);  // 100 ms per conversion
+            ltr_.enable(false);
+        } else {
+            setProblem(problem::kMissing);
         }
         return ok_;
     }
 
     void read(Reading* out) override {
-        bool want = has("uv"), wantLux = has("lux");
-        if (want) {
+        if (sends("uv")) {
             uint32_t uvs = 0;
             bool ok = sample(LTR390_MODE_UVS, uvs);
             // Datasheet: 2300 counts per UV index at gain 18 and 20 bit (400 ms); here gain 3,
             // 18 bit (100 ms): 2300 / 6 / 4.
             fill(out, "uv", uvs / (2300.0f / 24.0f), ok);
         }
-        if (wantLux) {
+        if (sends("lux")) {
             uint32_t als = 0;
             bool ok = sample(LTR390_MODE_ALS, als);
             // Datasheet: lux = 0.6 × ALS / (gain × integration time in units of 100 ms).
@@ -821,13 +1020,6 @@ public:
     }
 
 private:
-    bool has(const char* q) const {
-        for (uint8_t i = 0; i < cfg_.channelCount; i++) {
-            if (strcmp(cfg_.channels[i].q, q) == 0) return true;
-        }
-        return false;
-    }
-
     bool sample(ltr390_mode_t mode, uint32_t& value) {
         if (!ok_) return false;
         ltr_.setMode(mode);
@@ -835,6 +1027,7 @@ private:
         bool ready = false;
         for (uint32_t start = millis(); millis() - start < 400 && !(ready = ltr_.newDataAvailable());) delay(10);
         if (ready) value = mode == LTR390_MODE_UVS ? ltr_.readUVS() : ltr_.readALS();
+        else setProblem(problem::kTimeout);
         ltr_.enable(false);
         return ready;
     }
@@ -844,64 +1037,154 @@ private:
     bool ok_ = false;
 };
 
+// Adafruit's begin() resets the SCD30 and sets a 2 s interval. Done once after power-up only: a
+// sensor that kept running through the board's sleep keeps its interval and its calibration.
+class Scd30Device : public Adafruit_SCD30 {
+public:
+    bool attach(uint8_t address, TwoWire* wire) {
+        delete i2c_dev;
+        i2c_dev = new Adafruit_I2CDevice(address, wire);
+        return i2c_dev->begin();
+    }
+};
+
 class Scd30 : public Driver {
 public:
-    Scd30(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Scd30(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
 
-    // Measures every 2 s on its own and keeps calibrating; the board only collects the result.
-    bool begin() override {
-        ok_ = scd_.begin(cfg_.address, bus_);
-        if (ok_) scd_.setMeasurementInterval(2);
+    // Awake: a reading every 2 s. Asleep between rounds: it measures on its own at (a little
+    // less than) the spacing of its rounds, so a fresh value waits at every due round.
+    bool begin(bool cold) override {
+        uint16_t interval = schedule::scd30IntervalSeconds(ctx_.sleeps() ? ctx_.dueSeconds() : 0);
+        ok_ = cold ? scd_.begin(cfg_.address, bus_) : scd_.attach(cfg_.address, bus_);
+        // The interval is stored in the sensor: written only when it differs.
+        if (ok_ && scd_.getMeasurementInterval() != interval) ok_ = scd_.setMeasurementInterval(interval);
+        if (!ok_) setProblem(problem::kMissing);
+        interval_ = interval;
         return ok_;
     }
 
+    uint32_t start() override {
+        // A value is due at the latest one interval after the last; wait for it when needed.
+        polls_ = 0;
+        return 0;
+    }
+
+    uint32_t poll() override {
+        if (!ok_ || scd_.dataReady()) return 0;
+        // Right after power-up the first value takes up to two intervals; awake that is 4 s.
+        uint32_t limit = interval_ <= 2 ? 40 : 20;
+        return polls_++ < limit ? 100 : 0;
+    }
+
     void read(Reading* out) override {
-        bool ok = ok_;
-        for (uint32_t start = millis(); ok && !scd_.dataReady(); delay(100)) {
-            if (millis() - start > 3000) ok = false;
-        }
-        ok = ok && scd_.read() && scd_.CO2 > 0;
+        bool ok = ok_ && scd_.dataReady() && scd_.read() && scd_.CO2 > 0;
+        if (ok_ && !ok) setProblem(problem::kTimeout);
         fill(out, "co2", scd_.CO2, ok);
         fill(out, "t", scd_.temperature, ok);
         fill(out, "rh", scd_.relative_humidity, ok);
     }
 
+    uint32_t bootMs() const override { return 2000; }
+
 private:
     TwoWire* bus_;
-    Adafruit_SCD30 scd_;
+    Scd30Device scd_;
     bool ok_ = false;
+    uint16_t interval_ = 2;
+    uint16_t polls_ = 0;
 };
 
-void fillParticles(const Driver& d, Reading* out, const PM25_AQI_Data& data, bool ok);
+void fillParticles(Driver& d, Reading* out, const PM25_AQI_Data& data, bool ok);
+
+// The fan of a Plantower sensor wears out after about 8000 hours and draws 60 mA. With its SET
+// pin wired, it sleeps (SET low) between rounds that are more than a minute apart and runs 30 s
+// before a reading, as Plantower specifies. Without SET it simply keeps running.
+class FanSleep {
+public:
+    explicit FanSleep(int8_t setPin) : pin_(setPin) {}
+
+    bool wired() const { return pin_ >= 0; }
+
+    // After begin: asleep, or running when rounds are close together. Level first, then the
+    // output, then the hold from the last deep sleep released: SET never floats (its pull-up on
+    // the sensor would start the fan).
+    void begin(bool cold, bool keepRunning) {
+        if (!wired()) return;
+        if (cold || !running_) {
+            running_ = keepRunning;
+            if (keepRunning) since_ = millis();
+        }
+        digitalWrite(pin_, running_ ? HIGH : LOW);
+        pinMode(pin_, OUTPUT);
+        power::keepLevel(pin_);
+        power::releaseLevel(pin_);
+    }
+
+    // Milliseconds until the counts are stable.
+    uint32_t wake() {
+        if (!wired()) return 0;
+        if (!running_) {
+            digitalWrite(pin_, HIGH);
+            running_ = true;
+            since_ = millis();
+        }
+        uint32_t ran = millis() - since_;
+        return ran < 30000 ? 30000 - ran : 0;
+    }
+
+    void rest(const DriverContext& ctx) {
+        if (!wired() || ctx.dueSeconds() <= 60) return;  // a minute apart or less: keep it running
+        digitalWrite(pin_, LOW);  // held low through sleep (power::keepLevel)
+        running_ = false;
+    }
+
+private:
+    int8_t pin_;
+    bool running_ = false;
+    uint32_t since_ = 0;
+};
 
 class Pmsa003i : public Driver {
 public:
-    Pmsa003i(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Pmsa003i(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus), fan_(cfg.pin) {}
 
-    bool begin() override { return ok_ = aqi_.begin_I2C(bus_); }
+    bool begin(bool cold) override {
+        fan_.begin(cold, ctx_.dueSeconds() <= 60);
+        ok_ = aqi_.begin_I2C(bus_);
+        if (!ok_ && !fan_.wired()) setProblem(problem::kMissing);
+        return ok_ || fan_.wired();  // asleep, a PMSA003I may not answer I²C until it runs
+    }
+
+    uint32_t start() override { return fan_.wake(); }
 
     void read(Reading* out) override {
+        if (!ok_) ok_ = aqi_.begin_I2C(bus_);
         PM25_AQI_Data data{};
         bool ok = ok_ && aqi_.read(&data);
+        if (!ok) setProblem(ok_ ? problem::kTimeout : problem::kMissing);
         fillParticles(*this, out, data, ok);
     }
 
-    // The fan needs about 30 s after power-up before the counts are stable.
-    uint32_t warmupMs() const override { return 30000; }
+    void sleep() override { fan_.rest(ctx_); }
 
+    // Without SET the fan starts with the supply: 30 s until the counts are stable.
+    uint32_t powerUpMs() const override { return fan_.wired() ? 0 : 30000; }
 
 private:
     TwoWire* bus_;
     Adafruit_PM25AQI aqi_;
+    FanSleep fan_;
     bool ok_ = false;
 };
 
 class Pms5003 : public Driver {
 public:
-    explicit Pms5003(const DeviceConfig& cfg) : Driver(cfg) {}
+    Pms5003(const DeviceConfig& cfg, const DriverContext& ctx) : Driver(cfg, ctx), fan_(cfg.pin2) {}
 
     // Only the sensor's TX is needed: it sends a frame every second on its own.
-    bool begin() override {
+    bool begin(bool cold) override {
+        fan_.begin(cold, ctx_.dueSeconds() <= 60);
 #if defined(ESP8266)
         serial_.begin(9600, SWSERIAL_8N1, cfg_.pin, -1);
         ok_ = aqi_.begin_UART(&serial_);
@@ -912,33 +1195,61 @@ public:
         return ok_;
     }
 
+    uint32_t start() override { return fan_.wake(); }
+
     void read(Reading* out) override {
         PM25_AQI_Data data{};
         bool ok = false;
         // A frame takes up to a second; try for two.
         for (uint32_t start = millis(); ok_ && !ok && millis() - start < 2500; delay(50)) ok = aqi_.read(&data);
+        if (!ok) setProblem(problem::kTimeout);
         fillParticles(*this, out, data, ok);
     }
 
-    uint32_t warmupMs() const override { return 30000; }
+    void sleep() override { fan_.rest(ctx_); }
 
+    uint32_t powerUpMs() const override { return fan_.wired() ? 0 : 30000; }
 
 private:
 #if defined(ESP8266)
     SoftwareSerial serial_;
 #endif
     Adafruit_PM25AQI aqi_;
+    FanSleep fan_;
     bool ok_ = false;
 };
 
+// SEN5x: full measurement (fan on) only for due rounds. In between it rests in idle, or, when
+// VOC/NOx are sent, in its gas-only mode: the indices are computed on the sensor every second,
+// so they keep learning while the board sleeps.
 class Sen5x : public Driver {
 public:
-    Sen5x(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Sen5x(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
 
-    bool begin() override {
+    bool begin(bool cold) override {
         sen_.begin(*bus_);
-        ok_ = sen_.startMeasurement() == 0;
+        bool ready = false;
+        ok_ = sen_.readDataReady(ready) == 0;
+        if (!ok_) {
+            setProblem(problem::kMissing);
+            return false;
+        }
+        if (cold) {
+            // After power-up the sensor idles; keep it running when rounds are close together.
+            ok_ = (keepRunning() ? sen_.startMeasurement() : rest()) == 0;
+            since_ = millis();
+        }
         return ok_;
+    }
+
+    uint32_t start() override {
+        if (!ok_) return 0;
+        if (!full_) {
+            full_ = sen_.startMeasurement() == 0;
+            since_ = millis();
+        }
+        uint32_t ran = millis() - since_;
+        return ran < 10000 ? 10000 - ran : 0;  // fan run-up for stable PM values
     }
 
     void read(Reading* out) override {
@@ -948,6 +1259,7 @@ public:
         }
         float pm1 = NAN, pm25 = NAN, pm4 = NAN, pm10 = NAN, rh = NAN, t = NAN, voc = NAN, nox = NAN;
         bool ok = ready && sen_.readMeasuredValues(pm1, pm25, pm4, pm10, rh, t, voc, nox) == 0;
+        if (ok_ && !ok) setProblem(problem::kTimeout);
         fill(out, "pm1", pm1, ok);
         fill(out, "pm25", pm25, ok);
         fill(out, "pm4", pm4, ok);
@@ -959,31 +1271,48 @@ public:
         fill(out, "nox", nox, ok);
     }
 
-    uint32_t warmupMs() const override { return 1100; }
+    void sleep() override {
+        if (ok_ && !keepRunning()) rest();
+    }
+
+    uint32_t bootMs() const override { return 50; }
 
 private:
+    bool keepRunning() const { return !ctx_.sleeps() && ctx_.dueSeconds() <= 60; }
+
+    uint16_t rest() {
+        full_ = false;
+        return sends("voc") || sends("nox") ? sen_.startMeasurementWithoutPm() : sen_.stopMeasurement();
+    }
+
     TwoWire* bus_;
     SensirionI2CSen5x sen_;
     bool ok_ = false;
+    bool full_ = false;
+    uint32_t since_ = 0;
 };
 
 class Ina226 : public Driver {
 public:
-    Ina226(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), ina_(cfg.address, bus) {}
+    Ina226(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), ina_(cfg.address, bus) {}
 
-    bool begin() override {
+    // Triggered conversions, shut down in between.
+    bool begin(bool) override {
         ok_ = ina_.begin() && ina_.isConnected();
         if (ok_) ok_ = ina_.setMaxCurrentShunt(cfg_.number("maxA", 0.8f), cfg_.number("shunt", 0.1f)) == INA226_ERR_NONE;
+        if (ok_) ina_.shutDown();
+        else setProblem(problem::kMissing);
         return ok_;
     }
 
     void read(Reading* out) override {
-        fill(out, "v", ina_.getBusVoltage(), ok_);
-        fill(out, "i", ina_.getCurrent(), ok_);
-        fill(out, "w", ina_.getPower(), ok_);
+        bool ok = ok_ && ina_.setModeShuntBusTrigger() && ina_.waitConversionReady(50);
+        if (ok_ && !ok) setProblem(problem::kTimeout);
+        fill(out, "v", ina_.getBusVoltage(), ok);
+        fill(out, "i", ina_.getCurrent(), ok);
+        fill(out, "w", ina_.getPower(), ok);
+        if (ok_) ina_.shutDown();
     }
-
-    uint32_t warmupMs() const override { return 5; }
 
 private:
     INA226 ina_;
@@ -992,17 +1321,26 @@ private:
 
 class Ina260 : public Driver {
 public:
-    Ina260(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Ina260(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
 
-    bool begin() override { return ok_ = ina_.begin(cfg_.address, bus_); }
-
-    void read(Reading* out) override {
-        fill(out, "v", ina_.readBusVoltage() / 1000.0f, ok_);
-        fill(out, "i", ina_.readCurrent() / 1000.0f, ok_);
-        fill(out, "w", ina_.readPower() / 1000.0f, ok_);
+    bool begin(bool) override {
+        ok_ = ina_.begin(cfg_.address, bus_);
+        if (ok_) ina_.setMode(INA260_MODE_SHUTDOWN);
+        else setProblem(problem::kMissing);
+        return ok_;
     }
 
-    uint32_t warmupMs() const override { return 5; }
+    void read(Reading* out) override {
+        bool ok = ok_;
+        if (ok) {
+            ina_.setMode(INA260_MODE_TRIGGERED);  // one conversion, then it powers down itself
+            uint32_t start = millis();
+            while (!ina_.conversionReady() && millis() - start < 50) delay(2);
+        }
+        fill(out, "v", ina_.readBusVoltage() / 1000.0f, ok);
+        fill(out, "i", ina_.readCurrent() / 1000.0f, ok);
+        fill(out, "w", ina_.readPower() / 1000.0f, ok);
+    }
 
 private:
     TwoWire* bus_;
@@ -1012,27 +1350,25 @@ private:
 
 class Ads1115 : public Driver {
 public:
-    Ads1115(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Ads1115(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
 
-    // ±4.096 V range: covers 0..3.3 V inputs (never more than the supply on any input).
-    bool begin() override {
+    // ±4.096 V range: covers 0..3.3 V inputs (never more than the supply on any input). Single
+    // shot: the converter powers down after each conversion by itself.
+    bool begin(bool) override {
         ok_ = ads_.begin(cfg_.address, bus_);
         if (ok_) ads_.setGain(GAIN_ONE);
+        else setProblem(problem::kMissing);
         return ok_;
     }
 
     void read(Reading* out) override {
         const char* inputs[] = {"a0", "a1", "a2", "a3"};
         for (uint8_t ch = 0; ch < 4; ch++) {
-            bool wanted = false;
-            for (uint8_t i = 0; i < cfg_.channelCount; i++) wanted = wanted || strcmp(cfg_.channels[i].q, inputs[ch]) == 0;
-            if (!wanted) continue;
+            if (!sends(inputs[ch])) continue;
             float volts = ok_ ? ads_.computeVolts(ads_.readADC_SingleEnded(ch)) : NAN;
             fill(out, inputs[ch], volts, ok_);
         }
     }
-
-    uint32_t warmupMs() const override { return 5; }
 
 private:
     TwoWire* bus_;
@@ -1042,16 +1378,18 @@ private:
 
 // Distance sensors also report a fill level when "empty" and "full" distances are set: a sensor
 // above a tank sees the water surface come closer as it fills.
-void fillDistance(const Driver& d, Reading* out, float cm, bool ok);
+void fillDistance(Driver& d, Reading* out, float cm, bool ok);
 
 class Vl53l0x : public Driver {
 public:
-    Vl53l0x(const DeviceConfig& cfg, TwoWire* bus) : Driver(cfg), bus_(bus) {}
+    Vl53l0x(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
 
-    bool begin() override {
+    // Single ranging on request; the sensor returns to standby (5 µA) by itself.
+    bool begin(bool) override {
         tof_.setBus(bus_);
         tof_.setTimeout(500);
         ok_ = tof_.init();
+        if (!ok_) setProblem(problem::kMissing);
         return ok_;
     }
 
@@ -1065,11 +1403,11 @@ public:
                 n++;
             }
         }
+        if (ok_ && n == 0) setProblem(problem::kTimeout);
         fillDistance(*this, out, n ? sum / 10.0f / n : NAN, n > 0);
     }
 
-    uint32_t warmupMs() const override { return 5; }
-
+    uint32_t bootMs() const override { return 2; }
 
 private:
     TwoWire* bus_;
@@ -1079,9 +1417,9 @@ private:
 
 class Hcsr04 : public Driver {
 public:
-    explicit Hcsr04(const DeviceConfig& cfg) : Driver(cfg) {}
+    Hcsr04(const DeviceConfig& cfg, const DriverContext& ctx) : Driver(cfg, ctx) {}
 
-    bool begin() override {
+    bool begin(bool) override {
         pinMode(cfg_.pin, OUTPUT);
         digitalWrite(cfg_.pin, LOW);
         pinMode(cfg_.pin2, INPUT);
@@ -1102,6 +1440,7 @@ public:
             delay(60);  // let the last echo die away
         }
         if (n == 0) {
+            setProblem(problem::kTimeout);
             fillDistance(*this, out, NAN, false);
             return;
         }
@@ -1117,24 +1456,49 @@ public:
         fillDistance(*this, out, samples[n / 2] * cmPerUs / 2.0f, true);
     }
 
-    uint32_t warmupMs() const override { return 50; }
-
+    uint32_t powerUpMs() const override { return 50; }
 };
 
-// Pulse counters: a water flow meter (YF-S201 and friends) or a tipping-bucket rain gauge. Every
-// pulse is counted in an interrupt, so the CPU must keep running (Always on, Modem sleep).
+// Pulse counters: a water flow meter (YF-S201 and friends) or a tipping-bucket rain gauge. Awake,
+// every pulse is counted in an interrupt. A rain gauge may also sleep: each tip wakes the board
+// for a moment (addSleepTips), which a flow meter's hundreds of pulses per second cannot do.
+#if !defined(ESP8266)
+struct SleepTips {
+    int8_t pin;
+    uint16_t tips;
+};
+RTC_DATA_ATTR SleepTips sleepTips[4] = {{-1, 0}, {-1, 0}, {-1, 0}, {-1, 0}};
+#endif
+
+uint16_t takeSleepTips(int8_t pin) {
+#if !defined(ESP8266)
+    for (SleepTips& s : sleepTips) {
+        if (s.pin == pin) {
+            uint16_t tips = s.tips;
+            s.tips = 0;
+            return tips;
+        }
+    }
+#endif
+    (void)pin;
+    return 0;
+}
+
 class Pulses : public Driver {
 public:
-    explicit Pulses(const DeviceConfig& cfg) : Driver(cfg) {}
+    Pulses(const DeviceConfig& cfg, const DriverContext& ctx) : Driver(cfg, ctx) {}
 
-    bool begin() override {
+    bool begin(bool) override {
         pinMode(cfg_.pin, INPUT_PULLUP);
         attachInterruptArg(digitalPinToInterrupt(cfg_.pin), onPulse, this, FALLING);
         since_ = millis();
         return true;
     }
 
-    bool continuous() const override { return true; }
+    // While the board sleeps a tip wakes it instead (wake inputs in main.cpp count it); the
+    // interrupt is off then, so a tip is never counted twice.
+    void beforeSleep() override { detachInterrupt(digitalPinToInterrupt(cfg_.pin)); }
+    void afterSleep() override { attachInterruptArg(digitalPinToInterrupt(cfg_.pin), onPulse, this, FALLING); }
 
     void read(Reading* out) override {
         noInterrupts();
@@ -1144,7 +1508,8 @@ public:
         uint32_t now = millis();
         float minutes = (now - since_) / 60000.0f;
         since_ = now;
-        if (strcmp(cfg_.driver, "rain") == 0) {
+        if (rain()) {
+            count += takeSleepTips(cfg_.pin);
             fill(out, "rain", count * cfg_.number("mm", 0.2794f), true);
         } else {
             float liters = count / cfg_.number("k", 450);
@@ -1154,6 +1519,7 @@ public:
     }
 
 private:
+    bool rain() const { return strcmp(cfg_.driver, "rain") == 0; }
     static void IRAM_ATTR onPulse(void* self) { static_cast<Pulses*>(self)->count_++; }
 
     volatile uint32_t count_ = 0;
@@ -1162,9 +1528,9 @@ private:
 
 class WifiSignal : public Driver {
 public:
-    explicit WifiSignal(const DeviceConfig& cfg) : Driver(cfg) {}
+    WifiSignal(const DeviceConfig& cfg, const DriverContext& ctx) : Driver(cfg, ctx) {}
 
-    bool begin() override { return true; }
+    bool begin(bool) override { return true; }
     bool afterConnect() const override { return true; }
 
     void read(Reading* out) override {
@@ -1174,13 +1540,13 @@ public:
 };
 
 // Environmental (atmospheric) concentrations, µg/m³.
-void fillParticles(const Driver& d, Reading* out, const PM25_AQI_Data& data, bool ok) {
+void fillParticles(Driver& d, Reading* out, const PM25_AQI_Data& data, bool ok) {
     d.fill(out, "pm1", data.pm10_env, ok);
     d.fill(out, "pm25", data.pm25_env, ok);
     d.fill(out, "pm10", data.pm100_env, ok);
 }
 
-void fillDistance(const Driver& d, Reading* out, float cm, bool ok) {
+void fillDistance(Driver& d, Reading* out, float cm, bool ok) {
     d.fill(out, "dist", cm, ok);
     float empty = d.cfg().number("empty", 0), full = d.cfg().number("full", 0);
     bool level = empty != full;
@@ -1205,9 +1571,9 @@ float readMillivolts(int8_t pin, uint16_t rangeMv) {
 
 class Analog : public Driver {
 public:
-    Analog(const DeviceConfig& cfg, uint16_t rangeMv) : Driver(cfg), rangeMv_(rangeMv) {}
+    Analog(const DeviceConfig& cfg, const DriverContext& ctx) : Driver(cfg, ctx) {}
 
-    bool begin() override {
+    bool begin(bool) override {
 #if !defined(ESP8266)
         analogSetPinAttenuation(cfg_.pin, ADC_11db);
 #endif
@@ -1215,7 +1581,7 @@ public:
     }
 
     void read(Reading* out) override {
-        float mv = readMillivolts(cfg_.pin, rangeMv_);
+        float mv = readMillivolts(cfg_.pin, ctx_.adcRangeMv);
         if (strcmp(cfg_.driver, "soil") == 0) {
             float dry = cfg_.number("dry", 2600), wet = cfg_.number("wet", 1100);
             float pct = dry == wet ? NAN : (dry - mv) / (dry - wet) * 100.0f;
@@ -1241,60 +1607,81 @@ public:
         }
     }
 
-    uint32_t warmupMs() const override { return 100; }
-
-private:
-    uint16_t rangeMv_;
+    // Probe boards need a moment to settle after power-up (pH and TDS about a second).
+    uint32_t powerUpMs() const override {
+        if (strcmp(cfg_.driver, "ph") == 0 || strcmp(cfg_.driver, "tds") == 0) return 1000;
+        if (strcmp(cfg_.driver, "soil") == 0) return 100;
+        return 10;
+    }
 };
 
 }  // namespace
 
-Driver* createDriver(const DeviceConfig& cfg, TwoWire* buses[kMaxI2cBuses], uint16_t adcRangeMv,
-                     bool restartsEachCycle) {
+void addSleepTips(int8_t pin, uint16_t tips) {
+#if !defined(ESP8266)
+    for (SleepTips& s : sleepTips) {
+        if (s.pin == pin) {
+            s.tips += tips;
+            return;
+        }
+    }
+    for (SleepTips& s : sleepTips) {
+        if (s.pin < 0) {
+            s = {pin, tips};
+            return;
+        }
+    }
+#else
+    (void)pin;
+    (void)tips;
+#endif
+}
+
+Driver* createDriver(const DeviceConfig& cfg, TwoWire* buses[kMaxI2cBuses], const DriverContext& ctx) {
     const char* id = cfg.driver;
-    if (strcmp(id, "ds18b20") == 0) return new Ds18b20(cfg);
-    if (strcmp(id, "dht") == 0) return new Dht(cfg);
+    if (strcmp(id, "ds18b20") == 0) return new Ds18b20(cfg, ctx);
+    if (strcmp(id, "dht") == 0) return new Dht(cfg, ctx);
     if (strcmp(id, "soil") == 0 || strcmp(id, "analog") == 0 || strcmp(id, "battery") == 0 || strcmp(id, "ph") == 0 ||
         strcmp(id, "tds") == 0) {
-        return new Analog(cfg, adcRangeMv);
+        return new Analog(cfg, ctx);
     }
-    if (strcmp(id, "pms5003") == 0) return new Pms5003(cfg);
-    if (strcmp(id, "hcsr04") == 0) return new Hcsr04(cfg);
-    if (strcmp(id, "flow") == 0 || strcmp(id, "rain") == 0) return new Pulses(cfg);
-    if (strcmp(id, "wifi") == 0) return new WifiSignal(cfg);
+    if (strcmp(id, "pms5003") == 0) return new Pms5003(cfg, ctx);
+    if (strcmp(id, "hcsr04") == 0) return new Hcsr04(cfg, ctx);
+    if (strcmp(id, "flow") == 0 || strcmp(id, "rain") == 0) return new Pulses(cfg, ctx);
+    if (strcmp(id, "wifi") == 0) return new WifiSignal(cfg, ctx);
 
     if (cfg.bus < 0 || !buses[cfg.bus]) return nullptr;
     TwoWire* bus = buses[cfg.bus];
-    if (strcmp(id, "sht4x") == 0) return new Sht4x(cfg, bus);
-    if (strcmp(id, "sht3x") == 0) return new Sht3x(cfg, bus);
-    if (strcmp(id, "aht") == 0) return new Aht(cfg, bus);
-    if (strcmp(id, "htu21d") == 0) return new Htu21d(cfg, bus);
-    if (strcmp(id, "bme280") == 0) return new Bme280(cfg, bus);
-    if (strcmp(id, "bmp280") == 0) return new Bmp280(cfg, bus);
-    if (strcmp(id, "bh1750") == 0) return new Bh1750(cfg, bus);
-    if (strcmp(id, "bme680") == 0) return new Bme680(cfg, bus);
-    if (strcmp(id, "sgp30") == 0) return new Sgp30(cfg, bus);
-    if (strcmp(id, "sgp40") == 0) return new Sgp40(cfg, bus);
-    if (strcmp(id, "sgp41") == 0) return new Sgp41(cfg, bus);
-    if (strcmp(id, "scd4x") == 0) return new Scd4x(cfg, bus, restartsEachCycle);
-    if (strcmp(id, "veml7700") == 0) return new Veml7700(cfg, bus);
-    if (strcmp(id, "ina219") == 0) return new Ina219(cfg, bus);
-    if (strcmp(id, "ms8607") == 0) return new Ms8607(cfg, bus);
-    if (strcmp(id, "bmp3xx") == 0) return new Bmp3xx(cfg, bus);
-    if (strcmp(id, "dps310") == 0) return new Dps310(cfg, bus);
-    if (strcmp(id, "lps22") == 0) return new Lps22(cfg, bus);
-    if (strcmp(id, "shtc3") == 0) return new Shtc3(cfg, bus);
-    if (strcmp(id, "mcp9808") == 0) return new Mcp9808(cfg, bus);
-    if (strcmp(id, "tmp117") == 0) return new Tmp117(cfg, bus);
-    if (strcmp(id, "tsl2591") == 0) return new Tsl2591(cfg, bus);
-    if (strcmp(id, "ltr390") == 0) return new Ltr390(cfg, bus);
-    if (strcmp(id, "scd30") == 0) return new Scd30(cfg, bus);
-    if (strcmp(id, "pmsa003i") == 0) return new Pmsa003i(cfg, bus);
-    if (strcmp(id, "sen5x") == 0) return new Sen5x(cfg, bus);
-    if (strcmp(id, "ina226") == 0) return new Ina226(cfg, bus);
-    if (strcmp(id, "ina260") == 0) return new Ina260(cfg, bus);
-    if (strcmp(id, "ads1115") == 0) return new Ads1115(cfg, bus);
-    if (strcmp(id, "vl53l0x") == 0) return new Vl53l0x(cfg, bus);
+    if (strcmp(id, "sht4x") == 0) return new Sht4x(cfg, ctx, bus);
+    if (strcmp(id, "sht3x") == 0) return new Sht3x(cfg, ctx, bus);
+    if (strcmp(id, "aht") == 0) return new Aht(cfg, ctx, bus);
+    if (strcmp(id, "htu21d") == 0) return new Htu21d(cfg, ctx, bus);
+    if (strcmp(id, "bme280") == 0) return new Bme280(cfg, ctx, bus);
+    if (strcmp(id, "bmp280") == 0) return new Bmp280(cfg, ctx, bus);
+    if (strcmp(id, "bh1750") == 0) return new Bh1750(cfg, ctx, bus);
+    if (strcmp(id, "bme680") == 0) return new Bme680(cfg, ctx, bus);
+    if (strcmp(id, "sgp30") == 0) return new Sgp30(cfg, ctx, bus);
+    if (strcmp(id, "sgp40") == 0) return new Sgp40(cfg, ctx, bus);
+    if (strcmp(id, "sgp41") == 0) return new Sgp41(cfg, ctx, bus);
+    if (strcmp(id, "scd4x") == 0) return new Scd4x(cfg, ctx, bus);
+    if (strcmp(id, "veml7700") == 0) return new Veml7700(cfg, ctx, bus);
+    if (strcmp(id, "ina219") == 0) return new Ina219(cfg, ctx, bus);
+    if (strcmp(id, "ms8607") == 0) return new Ms8607(cfg, ctx, bus);
+    if (strcmp(id, "bmp3xx") == 0) return new Bmp3xx(cfg, ctx, bus);
+    if (strcmp(id, "dps310") == 0) return new Dps310(cfg, ctx, bus);
+    if (strcmp(id, "lps22") == 0) return new Lps22(cfg, ctx, bus);
+    if (strcmp(id, "shtc3") == 0) return new Shtc3(cfg, ctx, bus);
+    if (strcmp(id, "mcp9808") == 0) return new Mcp9808(cfg, ctx, bus);
+    if (strcmp(id, "tmp117") == 0) return new Tmp117(cfg, ctx, bus);
+    if (strcmp(id, "tsl2591") == 0) return new Tsl2591(cfg, ctx, bus);
+    if (strcmp(id, "ltr390") == 0) return new Ltr390(cfg, ctx, bus);
+    if (strcmp(id, "scd30") == 0) return new Scd30(cfg, ctx, bus);
+    if (strcmp(id, "pmsa003i") == 0) return new Pmsa003i(cfg, ctx, bus);
+    if (strcmp(id, "sen5x") == 0) return new Sen5x(cfg, ctx, bus);
+    if (strcmp(id, "ina226") == 0) return new Ina226(cfg, ctx, bus);
+    if (strcmp(id, "ina260") == 0) return new Ina260(cfg, ctx, bus);
+    if (strcmp(id, "ads1115") == 0) return new Ads1115(cfg, ctx, bus);
+    if (strcmp(id, "vl53l0x") == 0) return new Vl53l0x(cfg, ctx, bus);
     return nullptr;
 }
 

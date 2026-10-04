@@ -65,8 +65,30 @@ for (const [pio] of iniDeps) {
   if (!libs.libraries.some((l) => l.pio === pio)) fail(`platformio.ini: ${pio} is not listed in catalog/libraries.json`);
 }
 
+// --- firmware versions ----------------------------------------------------------
+// "minFirmware" on a driver or sleep mode: the first firmware that runs it. Fleet sends a config
+// that uses it only to a device on that version or newer, or together with the firmware update.
+// Without it, a part works on every firmware that takes config over the air (0.5.0).
+const CONFIG_OTA_MIN = '0.5.0';
+const firmwareVersion = /^version\s*=\s*(\S+)/m.exec(ini)?.[1];
+const semver = (v) => /^(\d+)\.(\d+)\.(\d+)$/.exec(v ?? '')?.slice(1).map(Number) ?? null;
+const compare = (a, b) => {
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return Math.sign(a[i] - b[i]);
+  return 0;
+};
+function checkMinFirmware(owner, value) {
+  if (value === undefined) return;
+  const v = semver(value);
+  if (!v) return fail(`${owner}: minFirmware must be X.Y.Z, got ${value}`);
+  if (compare(v, semver(CONFIG_OTA_MIN)) < 0) fail(`${owner}: minFirmware below ${CONFIG_OTA_MIN} means nothing, leave it out`);
+  if (semver(firmwareVersion) && compare(v, semver(firmwareVersion)) > 0) {
+    fail(`${owner}: minFirmware ${value} is newer than this firmware (${firmwareVersion})`);
+  }
+}
+
 // --- sleep modes ---------------------------------------------------------------
 const modeIds = new Set(sleep.modes.map((m) => m.id));
+for (const m of sleep.modes) checkMinFirmware(`sleep mode ${m.id}`, m.minFirmware);
 
 // --- boards ---------------------------------------------------------------------
 const boardIds = new Set();
@@ -82,6 +104,10 @@ for (const [id, fam] of Object.entries(boards.families)) {
   // The web app adds these up to the fastest interval a configuration can keep.
   for (const key of ['bootMs', 'wifiMs', 'wifiFastMs', 'connectMs', 'valueMs']) {
     if (!(fam.timing?.[key] > 0)) fail(`family ${id}: timing.${key} missing`);
+  }
+  // Currents for the battery estimate in the web app: CPU awake, WiFi on, modem sleep, light sleep.
+  for (const key of ['cpuMa', 'wifiMa', 'modemMa', 'lightUa']) {
+    if (!(fam.current?.[key] > 0)) fail(`family ${id}: current.${key} missing`);
   }
   // The parser's channel pool (kMaxTotalChannels in src/config/Config.h) must match.
   {
@@ -130,6 +156,42 @@ for (const b of boards.boards) {
     }
   }
   if (!b.defaultPins) fail(`board ${b.id}: defaultPins missing`);
+  // Whole board in deep sleep (chip, regulator, USB chip, power LED), for the battery estimate.
+  if (!(b.sleepUa > 0)) fail(`board ${b.id}: sleepUa missing`);
+}
+
+// --- sleep rules -----------------------------------------------------------------
+// How a part behaves per power mode. Rules apply when every condition matches: `modes`, optional
+// `families`, and `when` (option values; `$pin`/`$pin2`/`$powerPin` whether that pin is wired;
+// `$channel` whether a value with that quantity is sent). `blocked` rules out the mode (with a
+// `fix`), `minFirmware` names the first firmware that runs it, `note` explains a trade-off,
+// `waitMs`/`sleepUa` replace the part's numbers in that mode. Firmware, backend and web app read
+// the same rules.
+const SLEEP_KEYS = ['modes', 'families', 'when', 'blocked', 'fix', 'minFirmware', 'note', 'waitMs', 'sleepUa'];
+function checkSleepRules(d) {
+  if (!Array.isArray(d.sleep)) return fail(`driver ${d.id}: sleep rules missing (use [] for none)`);
+  d.sleep.forEach((rule, i) => {
+    const at = `driver ${d.id}: sleep[${i}]`;
+    for (const key of Object.keys(rule)) if (!SLEEP_KEYS.includes(key)) fail(`${at}: unknown key ${key}`);
+    if (!rule.modes?.length || rule.modes.some((m) => !modeIds.has(m))) fail(`${at}: modes must name sleep modes`);
+    for (const f of rule.families ?? []) if (!boards.families[f]) fail(`${at}: unknown family ${f}`);
+    for (const [key, value] of Object.entries(rule.when ?? {})) {
+      if (key === '$channel') {
+        if (!d.channels.some((c) => c.q === value)) fail(`${at}: $channel ${value} is not a value of this part`);
+      } else if (key.startsWith('$')) {
+        if (!['$pin', '$pin2', '$powerPin'].includes(key) || typeof value !== 'boolean') fail(`${at}: unknown condition ${key}`);
+      } else {
+        const option = d.options.find((o) => o.key === key);
+        if (!option) fail(`${at}: when.${key} is not an option`);
+        else if (option.type === 'enum' && !option.values.includes(value)) fail(`${at}: when.${key} ${value} is not a value`);
+      }
+    }
+    if (rule.blocked && !rule.fix) fail(`${at}: a blocked mode says how to get around it (fix)`);
+    if (rule.blocked && (rule.minFirmware || rule.waitMs != null || rule.sleepUa != null)) fail(`${at}: a blocked rule only explains`);
+    if (!rule.blocked && !rule.minFirmware && !rule.note && rule.waitMs == null && rule.sleepUa == null) fail(`${at}: rule does nothing`);
+    if (rule.blocked && /\.$/.test(rule.blocked)) fail(`${at}: blocked ends a sentence after the part's name, no full stop`);
+    checkMinFirmware(at, rule.minFirmware);
+  });
 }
 
 // --- drivers --------------------------------------------------------------------
@@ -157,7 +219,17 @@ for (const d of drivers.drivers) {
   (d.pins ?? []).forEach((pin, i) => {
     if (pin.key !== ['pin', 'pin2'][i]) fail(`driver ${d.id}: pin ${i + 1} must have key ${['pin', 'pin2'][i] ?? '(none, at most two)'}`);
   });
-  if (!(d.readMs >= 0)) fail(`driver ${d.id}: readMs missing`);
+  // Timing per due round, the same numbers the firmware waits and the web app adds up.
+  for (const key of ['bootMs', 'powerUpMs', 'waitMs', 'readMs', 'sleepUa', 'activeMa']) {
+    if (!(d[key] >= 0)) fail(`driver ${d.id}: ${key} missing`);
+  }
+  for (const key of ['warmupMs', 'sleepSafe', 'continuous', 'requiresAwake']) {
+    if (key in d) fail(`driver ${d.id}: ${key} is replaced by the sleep rules`);
+  }
+  if ((d.pins ?? []).some((pin, i) => pin.optional && i === 0 && d.bus !== 'i2c')) {
+    fail(`driver ${d.id}: only a second pin, or the pin of an I²C part, can be optional`);
+  }
+  checkSleepRules(d);
   if (d.kind === 'output' ? d.channels.length !== 0 : d.channels.length === 0) {
     fail(`driver ${d.id}: ${d.kind === 'output' ? 'outputs send nothing' : 'needs at least one channel'}`);
   }
@@ -171,9 +243,7 @@ for (const d of drivers.drivers) {
   }
   for (const name of d.libs) if (!libByName.has(name)) fail(`driver ${d.id}: library ${name} missing in libraries.json`);
   // Sampling every second needs a running CPU; such a sensor can never be sleep safe.
-  if (d.continuous && d.sleepSafe) fail(`driver ${d.id}: continuous drivers cannot be sleepSafe`);
-  // Anything that rules out sleeping modes says why, in words the power step shows.
-  if ((d.continuous || d.kind) && !d.requiresAwake) fail(`driver ${d.id}: requiresAwake (the reason) missing`);
+  checkMinFirmware(`driver ${d.id}`, d.minFirmware);
   if (d.options.length > 6) fail(`driver ${d.id}: at most 6 options (kMaxOptions in src/config/Config.h)`);
   for (const o of d.options) {
     if (!OPTION_TYPES.includes(o.type)) fail(`driver ${d.id}: option ${o.key} has unknown type ${o.type}`);
@@ -197,10 +267,9 @@ const outIdx = process.argv.indexOf('--out');
 if (outIdx > 0) {
   const outDir = join(root, process.argv[outIdx + 1] ?? 'dist');
   mkdirSync(outDir, { recursive: true });
-  const version = /^version\s*=\s*(\S+)/m.exec(ini)?.[1];
   const merged = {
     schema: 1,
-    firmwareVersion: version,
+    firmwareVersion,
     families: boards.families,
     boards: boards.boards,
     quantities: drivers.quantities,
