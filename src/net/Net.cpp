@@ -67,6 +67,11 @@ bool connect(const Config& cfg, uint32_t timeoutMs) {
     delay(1);
 #endif
     WiFi.mode(WIFI_STA);
+#if defined(CONFIG_IDF_TARGET_ESP32C3)
+    // C3 SuperMini boards have a tiny chip antenna next to the regulator; at full power the
+    // WPA handshake fails ("AUTH") or times out. 8.5 dBm is the value these boards connect with.
+    if (strstr(cfg.board, "supermini")) WiFi.setTxPower(WIFI_POWER_8_5dBm);
+#endif
     if (cfg.staticIp) {
         WiFi.config(IPAddress(cfg.ip), IPAddress(cfg.gateway), IPAddress(cfg.subnet), IPAddress(cfg.dns));
     }
@@ -93,6 +98,9 @@ bool connect(const Config& cfg, uint32_t timeoutMs) {
 
     if (!ok) {
         status::line("ERR WIFI %s", reason(WiFi.status()));
+        // Stop the attempt that is still running, else the next begin() fails with
+        // "sta is connecting, cannot set config" and the following round starts from a dirty state.
+        WiFi.disconnect(true);
         return false;
     }
     if (cfg.fastReconnect) {
