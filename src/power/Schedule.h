@@ -36,6 +36,16 @@ enum class PinWake : uint8_t { Round, Send, Sleep };
 // `pressed`: a button press is waiting to be sent; `wakePin`: the "wake up early" pin.
 PinWake afterPinWake(int64_t untilRoundMs, bool pressed, bool wakePin, bool updateRunning);
 
+// Internet time (ms) the next round starts at. Rounds land on anchor + n × interval; the slot
+// this round served is the one nearest to when it started, so a timer that woke a little early
+// (the ESP8266 light sleep runs up to 5 % short, long deep sleeps drift) does not run the same
+// slot a second time. A round that took longer than the interval moves on to the next slot ahead.
+uint64_t nextSlotMs(uint64_t anchorMs, uint64_t intervalMs, uint64_t roundStartMs, uint64_t nowMs);
+
+// How long a round tries to join the WiFi. After two failed rounds in a row (router off, out of
+// range) only a short try, so a dead network does not keep the radio on for 20 s every round.
+uint32_t wifiTimeoutMs(uint16_t failuresInARow);
+
 // The X-Device-Report header: what the last round cost and what went wrong, read by the fleet
 // view. At most 240 characters; problems that do not fit are dropped from the end.
 struct ReportData {

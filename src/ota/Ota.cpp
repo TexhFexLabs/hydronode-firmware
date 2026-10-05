@@ -14,6 +14,7 @@
 #include "OtaStore.h"
 #include "OtaVerify.h"
 #include "config/ConfigStore.h"
+#include "power/Power.h"
 #include "status/Status.h"
 
 #if !defined(ESP8266)
@@ -88,9 +89,42 @@ bool restoreBackup() {
         pending.reserved = 2;  // restored; keep the backup until the result is reported
         savePending(pending);
     } else {
+        // Nothing to go back to: forget the update instead of trying again at every start.
+        // The board runs with what is on it; the server times the job out.
         status::line("ERR OTA no_backup");
+        clearPending();
+        clearBackup();
     }
     restart();
+}
+
+// The config on the board is the backup the rollback restored, byte for byte. Otherwise it came
+// from somewhere else since: a USB flash, which keeps the update's record (the flasher leaves
+// that area alone).
+bool restoredConfigOnBoard() {
+    uint8_t* current = static_cast<uint8_t*>(malloc(store::kBlockSize));
+    uint8_t* saved = static_cast<uint8_t*>(malloc(store::kBlockSize));
+    bool same = false;
+    if (current && saved && store::readConfigBlock(current, store::kBlockSize)) {
+        size_t len = loadBackup(saved, store::kBlockSize);
+        same = len > 0 && memcmp(current, saved, len) == 0;
+    }
+    if (current) {
+        memset(current, 0, store::kBlockSize);
+        free(current);
+    }
+    if (saved) {
+        memset(saved, 0, store::kBlockSize);
+        free(saved);
+    }
+    return same;
+}
+
+// A config flashed over USB replaces whatever the update left behind; nothing to roll back.
+void forgetForeignFlash() {
+    status::line("OTA record dropped, config was flashed since");
+    clearBackup();
+    clearPending();
 }
 
 void setStateHeader(HydroNode& hydro) {
@@ -161,6 +195,7 @@ void handleFirmwareOffer(HydroNode& hydro, JsonObjectConst o) {
     int lastStatus = 0;
     for (int tries = 0; tries < 3 && written < f.size && !writeFailed && !tooLarge; tries++) {
         HydroNode::DownloadResult r = hydro.downloadSigned(f.url, written, [&](const uint8_t* data, size_t n) {
+            power::feedWatchdog();  // a slow download may take longer than the watchdog's minutes
             if (written + n > f.size) {
                 tooLarge = true;
                 return false;
@@ -327,7 +362,7 @@ void begin(const Config& cfg, const ParseResult& configResult) {
     if (!havePending) {
         // ESP8266 can lose an interrupted state-sector write. A valid backup is the recovery
         // authority even when the pending record did not survive.
-        if (restoreBackup()) {
+        if (hasBackup() && restoreBackup()) {
             clearBackup();
             restart();
         }
@@ -353,6 +388,11 @@ void begin(const Config& cfg, const ParseResult& configResult) {
         return;
     }
     if (pending.result[0]) {
+        if (pending.kind == PendingKind::Config && pending.reserved == 2 && configResult.error == ConfigError::Ok &&
+            !restoredConfigOnBoard()) {
+            forgetForeignFlash();
+            return;
+        }
         if (pending.kind == PendingKind::Config &&
             (pending.reserved != 2 || configResult.error != ConfigError::Ok || cfg.rev != pending.fromRev)) {
             rollBackConfig(pending.result);
@@ -363,7 +403,9 @@ void begin(const Config& cfg, const ParseResult& configResult) {
     }
 
     if (pending.kind == PendingKind::Firmware) {
-        bool isNew = strcmp(HN_FW_VERSION, pending.toVersion) == 0;
+        // Same rule as the offer check ("v0.6.0" is "0.6.0"); a strict compare would call the new
+        // firmware a failed boot and leave it unconfirmed for the bootloader to roll back.
+        bool isNew = compareVersions(HN_FW_VERSION, pending.toVersion) == 0;
         if (isNew && pendingVerify) {
             if (configResult.error != ConfigError::Ok) {
                 copy(pending.result, sizeof(pending.result), "config_invalid");
@@ -386,6 +428,10 @@ void begin(const Config& cfg, const ParseResult& configResult) {
             return;
         }
     } else if (pending.kind == PendingKind::Config) {
+        if (configResult.error == ConfigError::Ok && cfg.rev != pending.fromRev && cfg.rev != pending.toRev) {
+            forgetForeignFlash();
+            return;
+        }
         if (configResult.error != ConfigError::Ok) rollBackConfig("config_invalid");
         // A reset between saving pending and writing flash can leave the old config intact.
         if (cfg.rev != pending.toRev) rollBackConfig("write_failed");
@@ -402,7 +448,13 @@ void begin(const Config& cfg, const ParseResult& configResult) {
     savePending(pending);
     // The timer also cuts off a blocked DNS/TLS/HTTP or driver call. Restarting an unconfirmed
     // app invokes bootloader rollback; an unconfirmed config is restored at the next boot.
-    verificationDeadline.once_ms(kVerifyLimitMs, []() { ESP.restart(); });
+    verificationDeadline.once_ms(kVerifyLimitMs, []() {
+        // The reason goes into the record first: after a firmware rollback the old firmware
+        // reports it. Timer context; the record write neither yields nor waits for the loop.
+        copy(pending.result, sizeof(pending.result), "timeout");
+        savePending(pending);
+        ESP.restart();
+    });
     status::line("OTA verify %s %s r%lu", pending.kind == PendingKind::Firmware ? "firmware" : "config",
                  verifyModeName(VerifyMode(pending.mode)), (unsigned long)cfg.rev);
 }

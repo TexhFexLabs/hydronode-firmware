@@ -72,6 +72,10 @@ const char* wakeReason() {
     return info && info->reason == REASON_DEEP_SLEEP_AWAKE ? "TIMER" : "RESET";
 }
 
+void startWatchdog() {}
+
+void feedWatchdog() {}
+
 void sensorsOn(const Config& cfg) {
     if (cfg.sensorPowerPin < 0) return;
     pinMode(cfg.sensorPowerPin, OUTPUT);

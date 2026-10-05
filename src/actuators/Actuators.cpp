@@ -127,6 +127,16 @@ void apply(Output& o) {
     }
 }
 
+// The level a pin takes once it becomes an output. digitalWrite() does nothing on an ESP32 pin
+// that pinMode() has not set up yet; the GPIO driver keeps the level in the output register.
+void presetLevel(uint8_t pin, bool high) {
+#if defined(ESP8266)
+    digitalWrite(pin, high ? HIGH : LOW);
+#else
+    gpio_set_level(gpio_num_t(pin), high ? 1 : 0);
+#endif
+}
+
 void set(Output& o, bool on) {
     o.pulsing = false;
     o.on = on;
@@ -188,7 +198,7 @@ void begin(const Config& cfg) {
             if (restored) savedState[index] = packState(o);
             // Level first, then output, then the hold of the last deep sleep released: an
             // active-low relay must not click during boot, nor when the board wakes up.
-            if (!o.dim) digitalWrite(o.pin, o.on != o.activeLow ? HIGH : LOW);
+            if (!o.dim) presetLevel(o.pin, o.on != o.activeLow);
             pinMode(o.pin, OUTPUT);
             if (!o.dim) power::keepLevel(o.dev->pin);
             power::releaseLevel(o.dev->pin);
@@ -229,7 +239,8 @@ void attach(HydroNode& hydro) {
         if (o->dim) {
             hydro.onUInt32(String(name) + "_level", [o](uint32_t percent) {
                 if (percent > 100) percent = 100;
-                o->level = uint8_t(percent * 255 / 100);
+                // 0 switches off and keeps the brightness for the next "on".
+                if (percent > 0) o->level = uint8_t(percent * 255 / 100);
                 set(*o, percent > 0);
             });
         }
@@ -256,6 +267,14 @@ void service() {
             if (b.type && b.queued < 255) b.queued++;
         }
     }
+}
+
+void advance(uint32_t sleptMs) {
+    for (uint8_t i = 0; i < outputCount; i++) {
+        if (outputs[i].pulsing) outputs[i].offAt -= sleptMs;
+    }
+    for (uint8_t i = 0; i < buttonCount; i++) buttons[i].changedAt -= sleptMs;
+    service();
 }
 
 bool busy() {

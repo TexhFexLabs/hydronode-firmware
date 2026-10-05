@@ -4,6 +4,10 @@
 #include <map>
 #include <string>
 #include <vector>
+struct HydroNodeValue {
+    const char* type;
+    float value;
+};
 class HydroNode {
 public:
     HydroNode(const char* = "", const char* = "", const char* = "") {}
@@ -24,6 +28,10 @@ public:
     void clearReadErrors() { errors.clear(); }
     void reportReadError(const char* id) { errors.push_back(id); }
     int sendValue(const char*, float) { return ingestStatus; }
+    int sendValues(const HydroNodeValue*, size_t count, int* codes = nullptr, uint32_t = 0) {
+        for (size_t i = 0; codes && i < count; i++) codes[i] = ingestStatus;
+        return ingestStatus;
+    }
     bool sendOtaAck(const char*, const char* result, const char*) { acks.push_back(result); return true; }
     struct DownloadResult { int status; size_t bytes; size_t total; };
     DownloadResult downloadSigned(const char*, size_t, std::function<bool(const uint8_t*, size_t)> fn) {

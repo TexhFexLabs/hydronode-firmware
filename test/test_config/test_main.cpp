@@ -134,6 +134,8 @@ void test_rejects_invalid_values() {
     TEST_ASSERT_EQUAL(ConfigError::BadValue,
                       parse(replace(kMinimal, "\"pin\":4", "\"bus\":0,\"addr\":68"), cfg));
     TEST_ASSERT_EQUAL(ConfigError::BadJson, parse("{not json", cfg));
+    // An ADC range past 16 bits must not wrap into the valid range (70000 would be 4464).
+    TEST_ASSERT_EQUAL(ConfigError::BadValue, parse(replace(kMinimal, "\"interval\":60", "\"interval\":60,\"adcMv\":70000"), cfg));
 }
 
 void test_hibernate_disables_fast_reconnect() {

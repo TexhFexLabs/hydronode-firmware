@@ -20,4 +20,6 @@ void delay(uint32_t ms);
 inline int digitalRead(uint8_t) { return HIGH; }
 #define INPUT 1
 #define INPUT_PULLUP 2
+#define INPUT_PULLDOWN 3
+#define RTC_DATA_ATTR
 inline void pinMode(uint8_t, uint8_t) {}

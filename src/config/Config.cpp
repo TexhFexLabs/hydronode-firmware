@@ -186,8 +186,9 @@ ParseResult parsePayload(const char* json, size_t len, Config& out) {
         if (out.wakePin >= 0) return fail(ConfigError::BadValue, "power.wakePin");
     }
 
-    out.adcRangeMv = doc["adcMv"] | 3200;
-    if (out.adcRangeMv < 1000 || out.adcRangeMv > 12000) return fail(ConfigError::BadValue, "adcMv");
+    uint32_t adcMv = doc["adcMv"] | 3200u;  // checked before it is narrowed to 16 bits
+    if (adcMv < 1000 || adcMv > 12000) return fail(ConfigError::BadValue, "adcMv");
+    out.adcRangeMv = uint16_t(adcMv);
 
     JsonArrayConst buses = doc["i2c"];
     if (buses.size() > kMaxI2cBuses) return fail(ConfigError::BadValue, "i2c");

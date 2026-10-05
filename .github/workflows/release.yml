@@ -29,7 +29,7 @@ jobs:
       - name: Catalog
         run: node tools/validate-catalog.mjs --out dist
       - name: Host tests
-        run: pio test -e native
+        run: pio test -e native && pio test -e native-ota
       - name: Build all families
         run: pio run
       - name: License gate

@@ -45,6 +45,7 @@
 #include <SoftwareSerial.h>
 #else
 #include <WiFi.h>
+#include <driver/gpio.h>
 #include <esp_attr.h>
 #endif
 
@@ -70,6 +71,20 @@ void Driver::fill(Reading* out, const char* q, float value, bool ok, bool warmin
             if (warming && !problem_) problem_ = problem::kWarming;
         }
     }
+}
+
+// The sensor still answers on its address. Several libraries cannot tell a sensor that left the
+// bus from a reading: a failed read leaves old bytes in their buffer and they turn those into a
+// value, or they wait forever for a ready bit.
+static bool answers(TwoWire* bus, uint8_t address) {
+    bus->beginTransmission(address);
+    return bus->endTransmission() == 0;
+}
+
+bool Driver::stillThere(TwoWire* bus) {
+    if (answers(bus, cfg_.address)) return true;
+    setProblem(problem::kMissing);
+    return false;
 }
 
 bool Driver::sends(const char* q) const {
@@ -112,13 +127,18 @@ public:
                              addr[2], addr[3], addr[4], addr[5], addr[6], addr[7]);
             }
         }
-        if (count == 0) setProblem(problem::kMissing);
-        return count > 0;
+        if (count == 0) {
+            setProblem(problem::kMissing);
+            return false;
+        }
+        // The library writes the probes (and their EEPROM) only when the setting changes.
+        sensors_.setResolution(bits());
+        return true;
     }
 
     uint32_t start() override {
         sensors_.requestTemperatures();
-        return 760;  // 12 bit conversion
+        return DallasTemperature::millisToWaitForConversion(bits()) + 10;  // 12 bit 760 ms, 10 bit 198 ms
     }
 
     void read(Reading* out) override {
@@ -139,6 +159,10 @@ public:
     }
 
 private:
+    // Accurate to ±0.5 °C at any resolution. Awake boards read 12 bit (0.0625 °C, 750 ms); boards
+    // that sleep between rounds read 10 bit (0.25 °C, 188 ms), a quarter of the time on.
+    uint8_t bits() const { return ctx_.sleeps() ? 10 : 12; }
+
     OneWire wire_;
     DallasTemperature sensors_;
 };
@@ -157,7 +181,7 @@ public:
     void read(Reading* out) override {
         float t = dht_.readTemperature(false, true);
         float rh = dht_.readHumidity();
-        if (isnan(t) && isnan(rh)) setProblem(problem::kTimeout);
+        if ((sends("t") && isnan(t)) || (sends("rh") && isnan(rh))) setProblem(problem::kTimeout);
         fill(out, "t", t, !isnan(t));
         fill(out, "rh", rh, !isnan(rh));
     }
@@ -184,10 +208,7 @@ public:
 
     bool begin(bool cold) override {
         sht_.begin(*bus_, cfg_.address);
-        if (cold) {
-            sht_.softReset();
-            delay(2);
-        }
+        if (cold) sht_.softReset();  // waits the 1 ms the sensor needs (and more)
         uint32_t serial = 0;
         bool ok = sht_.serialNumber(serial) == 0;
         if (!ok) setProblem(problem::kMissing);
@@ -240,8 +261,8 @@ public:
     }
 
     void read(Reading* out) override {
-        sensors_event_t humidity, temp;
-        bool ok = aht_.getEvent(&humidity, &temp);
+        sensors_event_t humidity{}, temp{};
+        bool ok = stillThere(bus_) && aht_.getEvent(&humidity, &temp);  // getEvent() spins on a lost sensor
         if (!ok) setProblem(problem::kTimeout);
         fill(out, "t", temp.temperature, ok);
         fill(out, "rh", humidity.relative_humidity, ok);
@@ -279,14 +300,41 @@ private:
     Adafruit_HTU21DF htu_;
 };
 
+// Adafruit's begin() resets the BME280, switches on the library's default profile (normal mode,
+// 16x) and waits 100 ms for its first value, which this driver never reads: it measures in forced
+// mode. In deep sleep that is 100 ms awake at every wake-up. Here: the chip ID, a reset only after
+// power-up (asleep the sensor keeps its registers), the calibration words as the library reads
+// them, nothing more. The values come from the library's own compensation as before.
+class Bme280Device : public Adafruit_BME280 {
+public:
+    bool attach(uint8_t address, TwoWire* wire, bool cold) {
+        delete i2c_dev;
+        _i2caddr = address;
+        i2c_dev = new Adafruit_I2CDevice(address, wire);
+        if (!i2c_dev->begin()) return false;
+        _sensorID = read8(BME280_REGISTER_CHIPID);
+        if (_sensorID != 0x60) return false;
+        if (cold) {
+            write8(BME280_REGISTER_SOFTRESET, 0xB6);
+            delay(3);  // start-up after a reset: 2 ms
+        }
+        // The sensor copies its calibration from NVM after a reset (a few ms).
+        for (uint32_t start = millis(); isReadingCalibration(); delay(1)) {
+            if (millis() - start > 50) return false;
+        }
+        readCoefficients();
+        return true;
+    }
+};
+
 class Bme280 : public Driver {
 public:
     Bme280(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
 
     // Bosch's "weather monitoring" setting: forced mode, 1x oversampling, no filter. The sensor
     // sleeps between readings, which keeps self-heating and current down.
-    bool begin(bool) override {
-        ok_ = bme_.begin(cfg_.address, bus_);
+    bool begin(bool cold) override {
+        ok_ = bme_.attach(cfg_.address, bus_, cold);
         if (ok_) {
             bme_.setSampling(Adafruit_BME280::MODE_FORCED, Adafruit_BME280::SAMPLING_X1, Adafruit_BME280::SAMPLING_X1,
                              Adafruit_BME280::SAMPLING_X1, Adafruit_BME280::FILTER_OFF);
@@ -297,22 +345,25 @@ public:
     }
 
     void read(Reading* out) override {
-        bool ok = ok_ && bme_.takeForcedMeasurement();
-        if (!ok) setProblem(problem::kTimeout);
+        bool here = ok_ && stillThere(bus_);
+        bool ok = here && bme_.takeForcedMeasurement();
+        if (here && !ok) setProblem(problem::kTimeout);
         fill(out, "t", bme_.readTemperature(), ok);
         fill(out, "rh", bme_.readHumidity(), ok);
         fill(out, "p", bme_.readPressure() / 100.0f, ok);
     }
 
+    uint32_t bootMs() const override { return 2; }  // Bosch: 2 ms start-up after power-on
+
 private:
     TwoWire* bus_;
-    Adafruit_BME280 bme_;
+    Bme280Device bme_;
     bool ok_ = false;
 };
 
 class Bmp280 : public Driver {
 public:
-    Bmp280(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bmp_(bus) {}
+    Bmp280(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus), bmp_(bus) {}
 
     bool begin(bool) override {
         ok_ = bmp_.begin(cfg_.address);
@@ -326,13 +377,17 @@ public:
     }
 
     void read(Reading* out) override {
-        bool ok = ok_ && bmp_.takeForcedMeasurement();
-        if (!ok) setProblem(problem::kTimeout);
+        bool here = ok_ && stillThere(bus_);
+        bool ok = here && bmp_.takeForcedMeasurement();
+        if (here && !ok) setProblem(problem::kTimeout);
         fill(out, "t", bmp_.readTemperature(), ok);
         fill(out, "p", bmp_.readPressure() / 100.0f, ok);
     }
 
+    uint32_t bootMs() const override { return 2; }  // Bosch: 2 ms start-up after power-on
+
 private:
+    TwoWire* bus_;
     Adafruit_BMP280 bmp_;
     bool ok_ = false;
 };
@@ -386,23 +441,46 @@ public:
         return ok_;
     }
 
+    // The measurement (and the heater) runs while the board naps; performReading() would wait
+    // for it awake.
+    uint32_t start() override {
+        started_ = ok_ && bme_.beginReading() != 0;
+        int left = started_ ? bme_.remainingReadingMillis() : 0;
+        return left > 0 ? uint32_t(left) : 0;
+    }
+
     void read(Reading* out) override {
-        bool ok = ok_ && bme_.performReading();
+        // Always ends the reading the library started (its Bosch API checks the sensor's status).
+        bool ok = started_ && bme_.endReading();
         if (!ok) setProblem(problem::kTimeout);
+        started_ = false;
         fill(out, "t", bme_.temperature, ok);
         fill(out, "rh", bme_.humidity, ok);
         fill(out, "p", bme_.pressure / 100.0f, ok);
         fill(out, "gas", bme_.gas_resistance / 1000.0f, ok && bme_.gas_resistance > 0);
     }
 
+    uint32_t bootMs() const override { return 2; }  // Bosch: 2 ms start-up after power-on
+
 private:
     Adafruit_BME680 bme_;
     bool ok_ = false;
+    bool started_ = false;
 };
 
 // SHT-style ticks for Sensirion gas sensors: RH 0..100 % and T -45..130 °C over 0..65535.
 uint16_t rhTicks(float rh) { return isnan(rh) ? 0x8000 : uint16_t(constrain(rh, 0.0f, 100.0f) * 65535.0f / 100.0f); }
 uint16_t tTicks(float t) { return isnan(t) ? 0x6666 : uint16_t((constrain(t, -45.0f, 130.0f) + 45.0f) * 65535.0f / 175.0f); }
+
+// Sensirion CRC-8 (polynomial 0x31, start 0xFF) over one 16-bit word.
+uint8_t sensirionCrc(uint16_t word) {
+    uint8_t crc = 0xFF;
+    for (uint8_t b : {uint8_t(word >> 8), uint8_t(word & 0xFF)}) {
+        crc ^= b;
+        for (int i = 0; i < 8; i++) crc = (crc & 0x80) ? uint8_t((crc << 1) ^ 0x31) : uint8_t(crc << 1);
+    }
+    return crc;
+}
 
 // SGP30: one reading per second keeps its baseline; only offered with Always on and Modem sleep.
 class Sgp30 : public Driver {
@@ -468,7 +546,7 @@ public:
     void tick() override {
         if (!ok_) return;
         const Ambient& a = ambient();
-        uint16_t raw = sgp_.measureRaw(isnan(a.t) ? 25.0f : a.t, isnan(a.rh) ? 50.0f : a.rh);
+        uint16_t raw = measureRaw(isnan(a.rh) ? 50.0f : a.rh, isnan(a.t) ? 25.0f : a.t);
         sampled_ = raw != 0;
         if (sampled_) voc_ = algorithm_.process(raw);
         if (ctx_.mode == SleepMode::LightSleep) sgp_.heaterOff();
@@ -483,6 +561,27 @@ public:
     }
 
 private:
+    // sgp40_measure_raw_signal with humidity compensation. The data sheet gives 30 ms; the
+    // library waits 250 ms, every tick, with the CPU awake. 0 on any error.
+    uint16_t measureRaw(float rh, float t) {
+        uint16_t words[2] = {rhTicks(rh), tTicks(t)};
+        uint8_t address = cfg_.address ? cfg_.address : 0x59;
+        bus_->beginTransmission(address);
+        bus_->write(0x26);
+        bus_->write(0x0F);
+        for (uint16_t w : words) {
+            bus_->write(uint8_t(w >> 8));
+            bus_->write(uint8_t(w & 0xFF));
+            bus_->write(sensirionCrc(w));
+        }
+        if (bus_->endTransmission() != 0) return 0;
+        delay(30);
+        if (bus_->requestFrom(address, uint8_t(3)) != 3) return 0;
+        uint16_t raw = uint16_t(bus_->read() << 8);
+        raw |= uint8_t(bus_->read());
+        return uint8_t(bus_->read()) == sensirionCrc(raw) ? raw : 0;
+    }
+
     TwoWire* bus_;
     Adafruit_SGP40 sgp_;
     VOCGasIndexAlgorithm algorithm_;
@@ -564,16 +663,15 @@ public:
         // Asleep since its last round and set up at power-on: start() wakes it. A missing sensor
         // then fails its shot and says so.
         if (singleShot_ && !cold) return ok_ = true;
-        if (singleShot_) {
-            scd_.wakeUp();  // not acknowledged; stopping the measurement below proves it is awake
-            delay(30);
-        }
-        uint16_t error = scd_.stopPeriodicMeasurement();  // in case it still runs from before a reset
+        // Not acknowledged (the library waits the 30 ms); stopping the measurement below proves
+        // the sensor is awake.
+        if (singleShot_) scd_.wakeUp();
+        // In case it still runs from before a reset; the library waits the 500 ms it takes.
+        uint16_t error = scd_.stopPeriodicMeasurement();
         if (error) {
             setProblem(problem::kMissing);
             return ok_ = false;
         }
-        delay(500);
         ok_ = true;
         if (singleShot_) {
             // Volatile settings: set again after every power-up.
@@ -592,12 +690,12 @@ public:
     uint32_t start() override {
         if (!ok_) return 0;
         if (singleShot_) {
-            scd_.wakeUp();
-            delay(30);
+            scd_.wakeUp();  // waits the 30 ms itself
             shot_ = 1;
-            return scd_.measureSingleShot() == 0 ? 5000 : 0;
+            return shoot() ? kShotMs : 0;
         }
         // Periodic: the first result arrives 5 s after the start.
+        waitedFrom_ = millis();
         uint32_t since = millis() - startedAt_;
         return since < 5000 ? 5000 - since : 0;
     }
@@ -608,7 +706,13 @@ public:
             float t, rh;
             scd_.readMeasurement(co2, t, rh);  // the first shot after waking up: discarded
             shot_ = 2;
-            return scd_.measureSingleShot() == 0 ? 5000 : 0;
+            return shoot() ? kShotMs : 0;
+        }
+        if (!singleShot_ && ok_) {
+            // A new value every 5 s; the board naps between the checks.
+            bool ready = false;
+            if (scd_.getDataReadyStatus(ready) == 0 && ready) return 0;
+            if (millis() - waitedFrom_ < 11000) return 200;
         }
         return 0;
     }
@@ -621,10 +725,7 @@ public:
             ok = shot_ == 2 && scd_.readMeasurement(co2, t, rh) == 0;
         } else if (ok_) {
             bool ready = false;
-            for (uint32_t start = millis(); millis() - start < 6000; delay(100)) {
-                if (scd_.getDataReadyStatus(ready) == 0 && ready) break;
-            }
-            ok = ready && scd_.readMeasurement(co2, t, rh) == 0;
+            ok = scd_.getDataReadyStatus(ready) == 0 && ready && scd_.readMeasurement(co2, t, rh) == 0;
         }
         if (ok_ && !ok) setProblem(problem::kTimeout);
         ok = ok && co2 > 0;
@@ -639,14 +740,28 @@ public:
     }
 
     uint32_t bootMs() const override { return 1000; }
+    // The first shot starts after the boot second and the stop command begin() sends (0.5 s).
+    uint32_t powerUpMs() const override { return 1550; }
 
 private:
+    static constexpr uint32_t kShotMs = 5000;
+
+    // measure_single_shot (0x219D). The library's call waits the 5 s awake; this returns at
+    // once and the board naps meanwhile.
+    bool shoot() {
+        bus_->beginTransmission(cfg_.address);
+        bus_->write(0x21);
+        bus_->write(0x9D);
+        return bus_->endTransmission() == 0;
+    }
+
     TwoWire* bus_;
     SensirionI2cScd4x scd_;
     bool singleShot_;
     bool ok_ = false;
     uint8_t shot_ = 0;
     uint32_t startedAt_ = 0;
+    uint32_t waitedFrom_ = 0;
 };
 
 class Veml7700 : public Driver {
@@ -660,23 +775,79 @@ public:
         return ok_;
     }
 
-    void read(Reading* out) override {
-        float lux = -1;
-        if (ok_) {
-            veml_.enable(true);
-            delay(3);  // wake-up time from shutdown
-            // Picks gain and integration time for the current light, from moonlight to sunlight.
-            lux = veml_.readLux(VEML_LUX_AUTO);
-            veml_.enable(false);
+    // Picks gain and integration time for the current light, from moonlight to sunlight, in the
+    // steps of the library's VEML_LUX_AUTO. The library waits each step out awake (up to 5 s in
+    // the dark); here every wait is returned, so the board naps through them.
+    uint32_t start() override {
+        lux_ = -1;
+        // A sensor that left the bus reads 0xFFFF, which would look like bright sunlight.
+        if (!ok_ || !stillThere(bus_)) return 0;
+        veml_.enable(true);  // waits the 2.5 ms start-up itself
+        gain_ = 0;
+        it_ = 2;  // gain 1/8, 100 ms
+        corrected_ = false;
+        phase_ = Phase::First;
+        veml_.setGain(kGains[gain_]);
+        veml_.setIntegrationTime(kTimes[it_], false);
+        return 2 * kTimesMs[it_];
+    }
+
+    uint32_t poll() override {
+        if (phase_ == Phase::Idle) return 0;
+        uint16_t als = veml_.readALS(false);
+        if (phase_ == Phase::First) {
+            corrected_ = als > 100;
+            phase_ = corrected_ ? Phase::Bright : Phase::Dark;
         }
-        if (ok_ && lux < 0) setProblem(problem::kTimeout);
-        fill(out, "lux", lux, lux >= 0);
+        if (phase_ == Phase::Dark && als <= 100 && !(gain_ == 3 && it_ == 5)) {
+            // More gain first, then a longer integration time.
+            uint32_t flush = 0;
+            if (gain_ < 3) {
+                veml_.setGain(kGains[++gain_]);
+            } else {
+                flush = kTimesMs[it_];  // the running cycle of the old time ends first
+                veml_.setIntegrationTime(kTimes[++it_], false);
+            }
+            return flush + 2 * kTimesMs[it_];
+        }
+        if (phase_ == Phase::Bright && als > 10000 && it_ > 0) {
+            uint32_t flush = kTimesMs[it_];
+            veml_.setIntegrationTime(kTimes[--it_], false);
+            return flush + 2 * kTimesMs[it_];
+        }
+        // As the library's computeLux(): resolution from gain and time, the non-linear correction
+        // above 100 counts.
+        float lux = 0.0036f * (800.0f / kTimesMs[it_]) * (2.0f / kGainValues[gain_]) * als;
+        if (corrected_) lux = (((6.0135e-13f * lux - 9.3924e-9f) * lux + 8.1488e-5f) * lux + 1.0023f) * lux;
+        lux_ = lux;
+        phase_ = Phase::Idle;
+        return 0;
+    }
+
+    void read(Reading* out) override {
+        bool done = phase_ == Phase::Idle && lux_ >= 0;
+        if (ok_) veml_.enable(false);  // shut down: 0.5 µA until the next reading
+        if (ok_ && !done && !problem()) setProblem(problem::kTimeout);
+        phase_ = Phase::Idle;
+        fill(out, "lux", lux_, done);
     }
 
 private:
+    enum class Phase : uint8_t { Idle, First, Dark, Bright };
+    static constexpr uint8_t kGains[4] = {VEML7700_GAIN_1_8, VEML7700_GAIN_1_4, VEML7700_GAIN_1, VEML7700_GAIN_2};
+    static constexpr float kGainValues[4] = {0.125f, 0.25f, 1.0f, 2.0f};
+    static constexpr uint8_t kTimes[6] = {VEML7700_IT_25MS, VEML7700_IT_50MS, VEML7700_IT_100MS,
+                                          VEML7700_IT_200MS, VEML7700_IT_400MS, VEML7700_IT_800MS};
+    static constexpr uint32_t kTimesMs[6] = {25, 50, 100, 200, 400, 800};
+
     TwoWire* bus_;
     Adafruit_VEML7700 veml_;
     bool ok_ = false;
+    Phase phase_ = Phase::Idle;
+    uint8_t gain_ = 0;
+    uint8_t it_ = 2;
+    bool corrected_ = false;
+    float lux_ = -1;
 };
 
 class Ina219 : public Driver {
@@ -694,16 +865,17 @@ public:
     }
 
     void read(Reading* out) override {
-        if (ok_) {
+        bool here = ok_ && stillThere(bus_);
+        if (here) {
             ina_.powerSave(false);
             delay(2);  // one 12 bit conversion of shunt and bus: 2 × 532 µs
         }
         // Load voltage: bus voltage plus the drop over the shunt.
         float volts = ina_.getBusVoltage_V() + ina_.getShuntVoltage_mV() / 1000.0f;
-        fill(out, "v", volts, ok_);
-        fill(out, "i", ina_.getCurrent_mA() / 1000.0f, ok_);
-        fill(out, "w", ina_.getPower_mW() / 1000.0f, ok_);
-        if (ok_) ina_.powerSave(true);
+        fill(out, "v", volts, here);
+        fill(out, "i", ina_.getCurrent_mA() / 1000.0f, here);
+        fill(out, "w", ina_.getPower_mW() / 1000.0f, here);
+        if (here) ina_.powerSave(true);
     }
 
 private:
@@ -763,6 +935,8 @@ public:
         fill(out, "t", bmp_.temperature, ok);
         fill(out, "p", bmp_.pressure / 100.0, ok);
     }
+
+    uint32_t bootMs() const override { return 2; }  // Bosch: 2 ms start-up after power-on
 
 private:
     TwoWire* bus_;
@@ -826,12 +1000,14 @@ public:
     }
 
     void read(Reading* out) override {
-        sensors_event_t p, t;
-        bool ok = ok_ && lps_.getEvent(&p, &t);
+        sensors_event_t p{}, t{};
+        bool ok = ok_ && stillThere(bus_) && lps_.getEvent(&p, &t);  // getEvent() spins on a lost sensor
         if (ok_ && !ok) setProblem(problem::kTimeout);
         fill(out, "t", t.temperature, ok);
         fill(out, "p", p.pressure, ok);
     }
+
+    uint32_t bootMs() const override { return 5; }  // 4.5 ms boot after power-on
 
 private:
     TwoWire* bus_;
@@ -858,6 +1034,8 @@ public:
         fill(out, "rh", rh.relative_humidity, ok);
     }
 
+    uint32_t bootMs() const override { return 1; }  // 240 µs power-up
+
 private:
     TwoWire* bus_;
     Adafruit_SHTC3 shtc_;
@@ -882,7 +1060,7 @@ public:
 
     uint32_t start() override {
         if (!ok_) return 0;
-        mcp_.wake();
+        mcp_.shutdown_wake(false);  // wake() would also wait the 260 ms, awake
         return 260;
     }
 
@@ -917,6 +1095,7 @@ public:
     }
 
     uint32_t start() override {
+        ready_ = false;
         if (!ok_) return 0;
         tmp_.setMeasurementMode(TMP117_MODE_ONE_SHOT);
         return 130;
@@ -924,22 +1103,29 @@ public:
 
     uint32_t poll() override {
         // A slow conversion: ask again shortly, at most a few times.
-        if (ok_ && !tmp_.dataReady() && polls_++ < 5) return 20;
+        ready_ = ok_ && tmp_.dataReady();
+        if (ok_ && !ready_ && polls_++ < 5) return 20;
         polls_ = 0;
         return 0;
     }
 
+    // Only a finished conversion: the result register holds the last value, or -256 °C after
+    // power-up, and getEvent() reads it either way.
     void read(Reading* out) override {
-        sensors_event_t t;
-        bool ok = ok_ && tmp_.getEvent(&t);
+        sensors_event_t t{};
+        bool ok = ready_ && tmp_.getEvent(&t);
         if (ok_ && !ok) setProblem(problem::kTimeout);
         fill(out, "t", t.temperature, ok);
+        ready_ = false;
     }
+
+    uint32_t bootMs() const override { return 2; }  // 1.5 ms start-up after power-on
 
 private:
     TwoWire* bus_;
     Adafruit_TMP117 tmp_;
     bool ok_ = false;
+    bool ready_ = false;
     uint8_t polls_ = 0;
 };
 
@@ -960,7 +1146,8 @@ public:
 
     // Starts at high gain and steps down while the sensor saturates, from shade to full sun.
     void read(Reading* out) override {
-        if (!ok_) {
+        // A sensor that left the bus reads 0, which would look like darkness.
+        if (!ok_ || !stillThere(bus_)) {
             fill(out, "lux", NAN, false);
             return;
         }
@@ -973,7 +1160,8 @@ public:
             tsl_.disable();
             uint16_t ir = both >> 16, full = both & 0xFFFF;
             if (full < 36000 && ir < 36000) {
-                lux = tsl_.calculateLux(full, ir);
+                // Full darkness: 0 lx (the library divides by zero and returns NaN).
+                lux = full == 0 ? 0.0f : tsl_.calculateLux(full, ir);
                 break;
             }
         }
@@ -1086,6 +1274,8 @@ public:
     }
 
     uint32_t bootMs() const override { return 2000; }
+    // After power-on its first value takes the boot time plus one 2 s interval.
+    uint32_t powerUpMs() const override { return 4500; }
 
 private:
     TwoWire* bus_;
@@ -1113,9 +1303,16 @@ public:
         if (!wired()) return;
         if (cold || !running_) {
             running_ = keepRunning;
-            if (keepRunning) since_ = millis();
+            // Not cold with a new object: a deep sleep, through which the hold kept the fan
+            // running. It has run up long ago.
+            if (keepRunning) since_ = cold ? millis() : millis() - kRunUpMs;
         }
+        // digitalWrite() does nothing on an ESP32 pin pinMode() has not set up yet.
+#if defined(ESP8266)
         digitalWrite(pin_, running_ ? HIGH : LOW);
+#else
+        gpio_set_level(gpio_num_t(pin_), running_ ? 1 : 0);
+#endif
         pinMode(pin_, OUTPUT);
         power::keepLevel(pin_);
         power::releaseLevel(pin_);
@@ -1130,7 +1327,7 @@ public:
             since_ = millis();
         }
         uint32_t ran = millis() - since_;
-        return ran < 30000 ? 30000 - ran : 0;
+        return ran < kRunUpMs ? kRunUpMs - ran : 0;
     }
 
     void rest(const DriverContext& ctx) {
@@ -1140,6 +1337,7 @@ public:
     }
 
 private:
+    static constexpr uint32_t kRunUpMs = 30000;
     int8_t pin_;
     bool running_ = false;
     uint32_t since_ = 0;
@@ -1200,8 +1398,12 @@ public:
     void read(Reading* out) override {
         PM25_AQI_Data data{};
         bool ok = false;
-        // A frame takes up to a second; try for two.
-        for (uint32_t start = millis(); ok_ && !ok && millis() - start < 2500; delay(50)) ok = aqi_.read(&data);
+        // The library reads the oldest frame in the receive buffer, which may be from before the
+        // fan ran up. Drop what is there and take the next one: the sensor sends a frame at least
+        // every 2.3 s. Awake, not napping: the UART loses bytes in light sleep.
+        Stream& in = stream();
+        while (in.available() > 0) in.read();
+        for (uint32_t start = millis(); ok_ && !ok && millis() - start < 3000; delay(50)) ok = aqi_.read(&data);
         if (!ok) setProblem(problem::kTimeout);
         fillParticles(*this, out, data, ok);
     }
@@ -1212,7 +1414,10 @@ public:
 
 private:
 #if defined(ESP8266)
+    Stream& stream() { return serial_; }
     SoftwareSerial serial_;
+#else
+    Stream& stream() { return Serial1; }
 #endif
     Adafruit_PM25AQI aqi_;
     FanSleep fan_;
@@ -1236,7 +1441,12 @@ public:
         }
         if (cold) {
             // After power-up the sensor idles; keep it running when rounds are close together.
-            ok_ = (keepRunning() ? sen_.startMeasurement() : rest()) == 0;
+            if (keepRunning()) {
+                ok_ = sen_.startMeasurement() == 0;
+                full_ = ok_;  // start() must not start it again (and wait another run-up)
+            } else {
+                ok_ = rest() == 0;
+            }
             since_ = millis();
         }
         return ok_;
@@ -1331,11 +1541,12 @@ public:
     }
 
     void read(Reading* out) override {
-        bool ok = ok_;
+        bool ok = ok_ && stillThere(bus_);
         if (ok) {
             ina_.setMode(INA260_MODE_TRIGGERED);  // one conversion, then it powers down itself
             uint32_t start = millis();
-            while (!ina_.conversionReady() && millis() - start < 50) delay(2);
+            while (!(ok = ina_.conversionReady()) && millis() - start < 50) delay(2);
+            if (!ok) setProblem(problem::kTimeout);
         }
         fill(out, "v", ina_.readBusVoltage() / 1000.0f, ok);
         fill(out, "i", ina_.readCurrent() / 1000.0f, ok);
@@ -1363,14 +1574,32 @@ public:
 
     void read(Reading* out) override {
         const char* inputs[] = {"a0", "a1", "a2", "a3"};
+        bool here = ok_ && stillThere(bus_);
         for (uint8_t ch = 0; ch < 4; ch++) {
             if (!sends(inputs[ch])) continue;
-            float volts = ok_ ? ads_.computeVolts(ads_.readADC_SingleEnded(ch)) : NAN;
-            fill(out, inputs[ch], volts, ok_);
+            int16_t raw = 0;
+            bool ok = here && convert(ch, raw);
+            fill(out, inputs[ch], ok ? ads_.computeVolts(raw) : NAN, ok);
         }
     }
 
 private:
+    // One single-shot conversion (8 ms at 128 samples/s). readADC_SingleEnded() waits for it
+    // without a limit, forever when the converter left the bus.
+    bool convert(uint8_t ch, int16_t& raw) {
+        static const uint16_t mux[] = {ADS1X15_REG_CONFIG_MUX_SINGLE_0, ADS1X15_REG_CONFIG_MUX_SINGLE_1,
+                                       ADS1X15_REG_CONFIG_MUX_SINGLE_2, ADS1X15_REG_CONFIG_MUX_SINGLE_3};
+        ads_.startADCReading(mux[ch], false);
+        for (uint32_t start = millis(); millis() - start < 30; delay(1)) {
+            if (ads_.conversionComplete()) {
+                raw = ads_.getLastConversionResults();
+                return true;
+            }
+        }
+        setProblem(problem::kTimeout);
+        return false;
+    }
+
     TwoWire* bus_;
     Adafruit_ADS1115 ads_;
     bool ok_ = false;
@@ -1437,7 +1666,7 @@ public:
             digitalWrite(cfg_.pin, LOW);
             unsigned long us = pulseIn(cfg_.pin2, HIGH, 30000);
             if (us > 0) samples[n++] = us;
-            delay(60);  // let the last echo die away
+            if (i < 4) delay(60);  // let the last echo die away before the next ping
         }
         if (n == 0) {
             setProblem(problem::kTimeout);
@@ -1456,6 +1685,7 @@ public:
         fillDistance(*this, out, samples[n / 2] * cmPerUs / 2.0f, true);
     }
 
+    bool usesAmbient() const override { return true; }
     uint32_t powerUpMs() const override { return 50; }
 };
 
@@ -1520,9 +1750,22 @@ public:
 
 private:
     bool rain() const { return strcmp(cfg_.driver, "rain") == 0; }
-    static void IRAM_ATTR onPulse(void* self) { static_cast<Pulses*>(self)->count_++; }
+
+    // A rain gauge's reed contact bounces for a few milliseconds on every tip; a bucket cannot
+    // tip twice within 50 ms. A flow meter counts every edge (up to hundreds per second).
+    static void IRAM_ATTR onPulse(void* self) {
+        Pulses* p = static_cast<Pulses*>(self);
+        if (p->debounceUs_) {
+            uint32_t now = micros();
+            if (now - p->lastUs_ < p->debounceUs_) return;
+            p->lastUs_ = now;
+        }
+        p->count_ = p->count_ + 1;
+    }
 
     volatile uint32_t count_ = 0;
+    volatile uint32_t lastUs_ = 0;
+    const uint32_t debounceUs_ = rain() ? 50000 : 0;
     uint32_t since_ = 0;
 };
 
@@ -1606,6 +1849,8 @@ public:
             fill(out, "x", mv * cfg_.number("scale", 1) + cfg_.number("offset", 0), true);
         }
     }
+
+    bool usesAmbient() const override { return strcmp(cfg_.driver, "tds") == 0; }
 
     // Probe boards need a moment to settle after power-up (pH and TDS about a second).
     uint32_t powerUpMs() const override {

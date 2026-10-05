@@ -95,7 +95,7 @@
         "wifiMs": 2500,
         "wifiFastMs": 800,
         "connectMs": 1500,
-        "valueMs": 350
+        "valueMs": 10
       },
       "current": {
         "cpuMa": 30,
@@ -212,7 +212,7 @@
         "wifiMs": 2500,
         "wifiFastMs": 800,
         "connectMs": 1500,
-        "valueMs": 350
+        "valueMs": 10
       },
       "current": {
         "cpuMa": 25,
@@ -325,7 +325,7 @@
         "wifiMs": 2500,
         "wifiFastMs": 800,
         "connectMs": 1500,
-        "valueMs": 350
+        "valueMs": 10
       },
       "current": {
         "cpuMa": 40,
@@ -399,7 +399,7 @@
         "wifiMs": 2500,
         "wifiFastMs": 800,
         "connectMs": 1500,
-        "valueMs": 350
+        "valueMs": 10
       },
       "current": {
         "cpuMa": 20,
@@ -488,7 +488,7 @@
         "wifiMs": 2500,
         "wifiFastMs": 800,
         "connectMs": 1500,
-        "valueMs": 350
+        "valueMs": 10
       },
       "current": {
         "cpuMa": 22,
@@ -551,7 +551,7 @@
         "wifiMs": 4000,
         "wifiFastMs": 1200,
         "connectMs": 3200,
-        "valueMs": 600
+        "valueMs": 20
       },
       "current": {
         "cpuMa": 15,
