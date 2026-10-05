@@ -60,15 +60,9 @@ bool waitConnected(uint32_t timeoutMs) {
     return WiFi.status() == WL_CONNECTED;
 }
 
-}  // namespace
-
-bool connect(const Config& cfg, uint32_t timeoutMs) {
-    uint32_t start = millis();
-    WiFi.persistent(false);
-#if defined(ESP8266)
-    WiFi.forceSleepWake();
-    delay(1);
-#endif
+// Station mode with this board's transmit power and address. WiFi.disconnect(true) ends the
+// station, and with it these settings: set them again before every begin().
+void prepare(const Config& cfg) {
     WiFi.mode(WIFI_STA);
 #if defined(CONFIG_IDF_TARGET_ESP32C3)
     // C3 SuperMini boards have a tiny chip antenna next to the regulator; at full power the
@@ -78,6 +72,18 @@ bool connect(const Config& cfg, uint32_t timeoutMs) {
     if (cfg.staticIp) {
         WiFi.config(IPAddress(cfg.ip), IPAddress(cfg.gateway), IPAddress(cfg.subnet), IPAddress(cfg.dns));
     }
+}
+
+}  // namespace
+
+bool connect(const Config& cfg, uint32_t timeoutMs) {
+    uint32_t start = millis();
+    WiFi.persistent(false);
+#if defined(ESP8266)
+    WiFi.forceSleepWake();
+    delay(1);
+#endif
+    prepare(cfg);
 
     bool ok = false;
     bool usedFast = false;
@@ -92,6 +98,7 @@ bool connect(const Config& cfg, uint32_t timeoutMs) {
             saveFast();
             WiFi.disconnect(true);
             delay(50);
+            prepare(cfg);
         }
     }
     if (!ok) {

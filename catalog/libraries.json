@@ -12,14 +12,13 @@
     "HydroNode-Library",
     "ArduinoJson",
     "ArduinoHttpClient",
-    "NTPClient",
     "WiFiManager"
   ],
   "libraries": [
     {
       "name": "HydroNode-Library",
       "pio": "https://github.com/TexhFexLabs/HydroNode-Library.git",
-      "version": "1.6.0",
+      "version": "1.7.0",
       "license": "MIT",
       "url": "https://github.com/TexhFexLabs/HydroNode-Library"
     },
@@ -36,13 +35,6 @@
       "version": "0.6.2",
       "license": "Apache-2.0",
       "url": "https://github.com/arduino-libraries/ArduinoHttpClient"
-    },
-    {
-      "name": "NTPClient",
-      "pio": "arduino-libraries/NTPClient",
-      "version": "3.2.1",
-      "license": "MIT",
-      "url": "https://github.com/arduino-libraries/NTPClient"
     },
     {
       "name": "WiFiManager",

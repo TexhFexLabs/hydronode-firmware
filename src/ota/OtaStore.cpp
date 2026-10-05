@@ -107,6 +107,19 @@ bool saveBackup(const uint8_t* block, size_t len) {
 #endif
 }
 
+bool hasBackup() {
+#if defined(ESP8266)
+    uint32_t magic = 0;
+    return ESP.flashRead(kBackupOffset, &magic, sizeof(magic)) && memcmp(&magic, "HNC1", 4) == 0;
+#else
+    Preferences prefs;
+    if (!prefs.begin("hn-ota", true)) return false;
+    bool has = prefs.isKey("cfgbak");
+    prefs.end();
+    return has;
+#endif
+}
+
 size_t loadBackup(uint8_t* out, size_t cap) {
 #if defined(ESP8266)
     size_t len = cap < kBackupSize ? cap : kBackupSize;

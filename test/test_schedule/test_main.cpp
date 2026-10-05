@@ -1,6 +1,6 @@
 // Host tests for the round schedule: which round reads which value, the self-calibration
-// periods of an SCD41 in single shots, the SCD30 interval, the decision after a pin wake-up and
-// the X-Device-Report header.
+// periods of an SCD41 in single shots, the SCD30 interval, the decision after a pin wake-up, the
+// X-Device-Report header, the slot of the next round and the WiFi timeout after failures.
 
 #include <string.h>
 #include <unity.h>
@@ -66,6 +66,40 @@ void test_report_header() {
     TEST_ASSERT_TRUE(strlen(small) < sizeof(small));
 }
 
+void test_next_slot_on_time() {
+    // Rounds every 5 min from internet time 0; this round started on its slot.
+    TEST_ASSERT_EQUAL_UINT64(600000, nextSlotMs(0, 300000, 300000, 303000));
+    TEST_ASSERT_EQUAL_UINT64(300000, nextSlotMs(0, 300000, 0, 3000));  // the first round
+}
+
+void test_next_slot_after_an_early_wake() {
+    // The timer woke 15 s early (ESP8266 light sleep runs short): this round still served the
+    // 300 s slot, the next one is 600 s, not the same slot a few seconds later.
+    TEST_ASSERT_EQUAL_UINT64(600000, nextSlotMs(0, 300000, 285000, 288000));
+}
+
+void test_next_slot_after_a_late_wake() {
+    TEST_ASSERT_EQUAL_UINT64(600000, nextSlotMs(0, 300000, 320000, 323000));
+}
+
+void test_next_slot_after_a_long_round() {
+    // The round took longer than the interval: the next slot still lies ahead.
+    TEST_ASSERT_EQUAL_UINT64(900000, nextSlotMs(0, 300000, 300000, 650000));
+    TEST_ASSERT_EQUAL_UINT64(20000, nextSlotMs(0, 10000, 10000, 12000));
+}
+
+void test_next_slot_with_an_anchor_in_the_past() {
+    uint64_t anchor = 1791200000000ULL;
+    TEST_ASSERT_EQUAL_UINT64(anchor + 30000, nextSlotMs(anchor, 10000, anchor + 19700, anchor + 24500));
+}
+
+void test_wifi_timeout_shortens_after_failures() {
+    TEST_ASSERT_EQUAL_UINT32(20000, wifiTimeoutMs(0));
+    TEST_ASSERT_EQUAL_UINT32(20000, wifiTimeoutMs(1));
+    TEST_ASSERT_EQUAL_UINT32(8000, wifiTimeoutMs(2));
+    TEST_ASSERT_EQUAL_UINT32(8000, wifiTimeoutMs(500));
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_due_every_nth_round);
@@ -73,5 +107,11 @@ int main(int, char**) {
     RUN_TEST(test_scd30_interval);
     RUN_TEST(test_pin_wake_decision);
     RUN_TEST(test_report_header);
+    RUN_TEST(test_next_slot_on_time);
+    RUN_TEST(test_next_slot_after_an_early_wake);
+    RUN_TEST(test_next_slot_after_a_late_wake);
+    RUN_TEST(test_next_slot_after_a_long_round);
+    RUN_TEST(test_next_slot_with_an_anchor_in_the_past);
+    RUN_TEST(test_wifi_timeout_shortens_after_failures);
     return UNITY_END();
 }

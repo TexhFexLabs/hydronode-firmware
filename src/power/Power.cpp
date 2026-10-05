@@ -5,6 +5,7 @@
 #include <Arduino.h>
 #include <driver/gpio.h>
 #include <esp_sleep.h>
+#include <esp_task_wdt.h>
 #include <soc/soc_caps.h>
 #include <sys/time.h>
 
@@ -134,6 +135,18 @@ int64_t nowUs() {
 
 }  // namespace
 
+void startWatchdog() {
+    esp_task_wdt_config_t config = {
+        .timeout_ms = 5 * 60 * 1000,
+        .idle_core_mask = (1u << portNUM_PROCESSORS) - 1,
+        .trigger_panic = true,
+    };
+    if (esp_task_wdt_reconfigure(&config) != ESP_OK) esp_task_wdt_init(&config);
+    esp_task_wdt_add(nullptr);
+}
+
+void feedWatchdog() { esp_task_wdt_reset(); }
+
 const char* wakeReason() {
     switch (esp_sleep_get_wakeup_cause()) {
         case ESP_SLEEP_WAKEUP_TIMER: return "TIMER";
@@ -166,8 +179,10 @@ void holdLevels(bool hold) {
 
 void sensorsOn(const Config& cfg) {
     if (cfg.sensorPowerPin < 0) return;
-    digitalWrite(cfg.sensorPowerPin, HIGH);
+    // pinMode first: digitalWrite does nothing on a pin it has not set up. A hold from the deep
+    // sleep keeps the pad latched meanwhile, so the supply does not dip.
     pinMode(cfg.sensorPowerPin, OUTPUT);
+    digitalWrite(cfg.sensorPowerPin, HIGH);
     keepLevel(cfg.sensorPowerPin);
     releaseLevel(cfg.sensorPowerPin);
 }

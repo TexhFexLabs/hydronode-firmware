@@ -33,7 +33,6 @@ using namespace hn;
 
 namespace {
 
-constexpr uint32_t kWifiTimeoutMs = 20000;
 constexpr uint32_t kNoConfigRepeatMs = 10000;
 // A round never waits longer than this for its sensors (a fan run-up is 30 s, two CO₂ shots 10 s).
 constexpr uint32_t kRoundLimitMs = 90000;
@@ -62,9 +61,19 @@ bool poweredLong = false;
 bool coldSensors = true;  // the next begin() finds the sensors just powered
 bool sensorsPowered = true;  // false only between rounds with a switched supply
 
-// Pins that wake the board: the "wake up early" pin, buttons, rain gauges.
+// Pins that wake the board: the "wake up early" pin, buttons, rain gauges. `wakeInputs` are the
+// ones armed for the next sleep: all of them except those held at their wake level.
+power::WakeInput allInputs[power::kMaxWakeInputs];
+uint8_t allInputCount = 0;
 power::WakeInput wakeInputs[power::kMaxWakeInputs];
 uint8_t wakeInputCount = 0;
+#if !defined(ESP8266)
+// A bit per entry of allInputs held at its wake level when the board last went to sleep. Kept
+// through deep sleep, so the inputs armed then and the ones read after the wake-up are the same.
+RTC_DATA_ATTR uint8_t heldInputs = 0;
+#else
+uint8_t heldInputs = 0;
+#endif
 
 // What this round costs, for the next X-Device-Report.
 uint32_t roundStart = 0;
@@ -97,6 +106,16 @@ ParseResult loadConfig() {
 }
 
 bool connectedForSend() { return hydro && net::connected(); }
+
+// Always on and modem sleep with short rounds keep the TLS connection for the next round: the
+// handshake is 2 to 3 s of a 4 s round. The ESP8266 needs its heap back between rounds.
+bool keepConnection() {
+#if defined(ESP8266)
+    return false;
+#else
+    return (cfg.mode == SleepMode::AlwaysOn || cfg.mode == SleepMode::ModemSleep) && cfg.intervalSeconds <= 60;
+#endif
+}
 
 // The smallest "every" of a device: how many rounds lie between two rounds that read it.
 uint16_t deviceEvery(uint8_t i) {
@@ -134,16 +153,20 @@ void ensureClient() {
 // through, with the reason (wrong password, network gone, timeout).
 bool connectForSend() {
     if (net::connected()) return true;
-    bool ok = net::connect(cfg, kWifiTimeoutMs);
-    roundWifiMs += net::lastConnectMs();
     power::ReportState& r = power::report();
+    bool ok = net::connect(cfg, schedule::wifiTimeoutMs(r.wifiFailures));
+    roundWifiMs += net::lastConnectMs();
     if (!ok) {
         if (r.wifiFailures < 0xFFFF) r.wifiFailures++;
         strncpy(r.wifiError, net::lastError() ? net::lastError() : "UNKNOWN", sizeof(r.wifiError) - 1);
         r.wifiError[sizeof(r.wifiError) - 1] = '\0';
         power::saveReport();
+        return false;
     }
-    return ok;
+    // Modem sleep keeps the radio dozing between rounds. The other modes want the round over
+    // fast: no doze between the frames of DNS, TLS and the request.
+    net::setPowerSave(cfg.mode == SleepMode::ModemSleep);
+    return true;
 }
 
 // X-Device-Report: the last round's awake time, naps and connect time, pin wake-ups and failed
@@ -167,14 +190,16 @@ void reportDelivered() {
 
 // Button presses go out right away.
 void sendPresses() {
+    bool sent = false;
     for (const char* type = act::takePress(); type; type = act::takePress()) {
         if (!connectedForSend()) continue;  // no connection: the press still toggled locally
         int code = hydro->sendValue(type, 1);
         ota::afterSend(code);
         status::line("SEND %s %d", type, code);
         if (code >= 200 && code < 300) reportDelivered();
-        hydro->closeConnection();
+        sent = true;
     }
+    if (sent && !keepConnection()) hydro->closeConnection();
 }
 
 // A press that woke a sleeping board: connect, send it, take the commands of the answer.
@@ -200,18 +225,51 @@ const DeviceConfig* rainAt(int8_t pin) {
     return nullptr;
 }
 
-// Pins that wake the board in this power mode. The ESP8266 has none (its deep sleep timer needs
-// RST); hibernate wakes on its timer only.
-void collectWakeInputs() {
+void armInputs() {
     wakeInputCount = 0;
+    for (uint8_t i = 0; i < allInputCount; i++) {
+        if (!(heldInputs & (1u << i))) wakeInputs[wakeInputCount++] = allInputs[i];
+    }
+}
+
+// Pins that wake the board in this power mode. The ESP8266 has none (its deep sleep timer needs
+// RST); hibernate wakes on its timer only. `fresh`: after a reset nothing counts as held.
+void collectWakeInputs(bool fresh) {
+    allInputCount = 0;
+    if (fresh) heldInputs = 0;
 #if !defined(ESP8266)
-    if (!sleeping() || cfg.mode == SleepMode::Hibernate) return;
-    if (cfg.wakePin >= 0) wakeInputs[wakeInputCount++] = {cfg.wakePin, cfg.wakeLevel};
-    wakeInputCount += act::wakeInputs(wakeInputs + wakeInputCount, power::kMaxWakeInputs - wakeInputCount);
-    for (uint8_t i = 0; i < cfg.deviceCount && wakeInputCount < power::kMaxWakeInputs; i++) {
-        if (strcmp(cfg.devices[i].driver, "rain") == 0) wakeInputs[wakeInputCount++] = {cfg.devices[i].pin, 0};
+    if (sleeping() && cfg.mode != SleepMode::Hibernate) {
+        // Set up as inputs, pulled away from the level that wakes, so their level can be read
+        // before the drivers start (rain gauges) or when nothing else owns them (wake pin).
+        if (cfg.wakePin >= 0) {
+            pinMode(cfg.wakePin, cfg.wakeLevel ? INPUT_PULLDOWN : INPUT_PULLUP);
+            allInputs[allInputCount++] = {cfg.wakePin, cfg.wakeLevel};
+        }
+        allInputCount += act::wakeInputs(allInputs + allInputCount, power::kMaxWakeInputs - allInputCount);
+        for (uint8_t i = 0; i < cfg.deviceCount && allInputCount < power::kMaxWakeInputs; i++) {
+            if (strcmp(cfg.devices[i].driver, "rain") != 0) continue;
+            pinMode(cfg.devices[i].pin, INPUT_PULLUP);
+            allInputs[allInputCount++] = {cfg.devices[i].pin, 0};
+        }
     }
 #endif
+    armInputs();
+}
+
+// Right before a sleep: a pin still at its wake level (a rain contact stuck closed, a shorted
+// cable, the wake pin left on) is not armed, else it would wake the board straight back up, over
+// and over. It is armed again once it lets go.
+void checkHeldInputs() {
+    uint8_t held = 0;
+    for (uint8_t i = 0; i < allInputCount; i++) {
+        if (digitalRead(allInputs[i].pin) == (allInputs[i].level ? HIGH : LOW)) held |= uint8_t(1u << i);
+    }
+    if (held == heldInputs) return;
+    for (uint8_t i = 0; i < allInputCount; i++) {
+        if ((held & ~heldInputs) & (1u << i)) status::line("WARN WAKE pin=%d held, not armed", allInputs[i].pin);
+    }
+    heldInputs = held;
+    armInputs();
 }
 
 // Waits until a rain gauge's reed contact opens again, so its level does not wake the board
@@ -283,15 +341,28 @@ uint32_t untilNextTick(uint32_t limit) {
 // for the wake inputs. Returns early when the "wake up early" pin fires.
 bool pause(uint32_t ms, bool nap) {
 #if defined(ESP8266)
-    // millis() stands still in the ESP8266's light sleep: one sleep for the whole time.
+    // millis() stands still in the ESP8266's light sleep: sleep up to the next timed switch-off
+    // at a time and tell the outputs how long it was, so a pulse ends on time.
     if (nap && ms >= schedule::kMinNapMs) {
-        power::lightSleep(cfg, ms, nullptr, 0, true);
+        for (uint32_t left = ms; left;) {
+            uint32_t pending = act::pendingMs();
+            uint32_t step = pending && pending < left ? pending : left;
+            if (step >= schedule::kMinNapMs) {
+                power::lightSleep(cfg, step, nullptr, 0, true);
+                act::advance(step);
+            } else {
+                delay(step);
+                act::service();
+            }
+            left -= step;
+        }
         clockStopped = true;
         return false;
     }
 #endif
     uint32_t start = millis();
     for (;;) {
+        power::feedWatchdog();
         runTicks();
         act::service();
         if (net::connected()) sendPresses();
@@ -306,6 +377,7 @@ bool pause(uint32_t ms, bool nap) {
             for (uint8_t i = 0; i < cfg.deviceCount; i++) {
                 if (drivers[i] && begun[i]) drivers[i]->beforeSleep();
             }
+            checkHeldInputs();
             power::lightSleep(cfg, step, wakeInputs, wakeInputCount, true);
             for (uint8_t i = 0; i < cfg.deviceCount; i++) {
                 if (drivers[i] && begun[i]) drivers[i]->afterSleep();
@@ -358,6 +430,7 @@ void createDrivers() {
 
 void powerSensors() {
     power::sensorsOn(cfg);
+    startBuses();
     sensorsPowered = true;
     poweredAt = millis();
     poweredLong = false;
@@ -397,7 +470,7 @@ void prepareDevices(Run runs[], bool napAllowed) {
             switch (r.step) {
                 case Step::Begin: {
                     bool ok = d->begin(coldSensors);
-                    begun[i] = true;
+                    begun[i] = ok;  // a sensor that did not answer is tried again next round
                     nextTick[i] = millis() + d->tickMs();
                     status::line("DEV %s %s", cfg.devices[i].driver, ok ? "ok" : "missing");
                     if (!ok) {
@@ -491,6 +564,7 @@ ota::RoundReport measureAndSend() {
         if (!drivers[i]) continue;
         runs[i].due = deviceDue(i);
         anyDue = anyDue || runs[i].due;
+        if (runs[i].due) drivers[i]->resetProblem();  // what goes wrong this round, not before
     }
     if (anyDue && cyclesSensorPower() && !sensorsPowered) powerSensors();
     for (uint8_t i = 0; i < cfg.deviceCount && sensorsPowered; i++) {
@@ -516,10 +590,14 @@ ota::RoundReport measureAndSend() {
     prepareDevices(runs, napAllowed);
     coldSensors = false;
 
-    for (uint8_t i = 0; i < cfg.deviceCount; i++) {
-        if (runs[i].step == Step::Ready) readDevice(i, readings);
+    // Sensors that compensate with another one's temperature (TDS, ultrasonic) read after it.
+    for (uint8_t pass = 0; pass < 2; pass++) {
+        for (uint8_t i = 0; i < cfg.deviceCount; i++) {
+            if (runs[i].step == Step::Ready && drivers[i] && drivers[i]->usesAmbient() == (pass == 1)) readDevice(i, readings);
+        }
+        if (pass == 0) updateAmbient(readings);
     }
-    updateAmbient(readings);
+    uint32_t readAt = millis();
     for (uint8_t i = 0; i < cfg.deviceCount; i++) {
         if (runs[i].step == Step::Ready && drivers[i]) drivers[i]->sleep();
         if (drivers[i] && drivers[i]->afterConnect()) runs[i].due = deviceDue(i);
@@ -558,7 +636,11 @@ ota::RoundReport measureAndSend() {
         }
     }
 
-    bool delivered = false;
+    // All due values in one request, stamped with the time they were read: they arrive together
+    // and land on the same point in time.
+    HydroNodeValue batch[kMaxTotalChannels];
+    int codes[kMaxTotalChannels];
+    size_t count = 0;
     for (uint8_t i = 0; i < cfg.deviceCount; i++) {
         for (uint8_t c = 0; c < cfg.devices[i].channelCount; c++) {
             const Reading& r = readings[i][c];
@@ -569,23 +651,20 @@ ota::RoundReport measureAndSend() {
                              cfg.devices[i].channels[c].type);
                 continue;
             }
-            int code = hydro->sendValue(r.type, r.value);
-            ota::afterSend(code);
-            status::line("SEND %s %d", r.type, code);
-            if (code == 401 || code == 403) status::line("ERR AUTH %d", code);
-            if (code >= 200 && code < 300) {
-                report.bestStatus = code;
-                delivered = true;
-            } else if (report.bestStatus < 200 || report.bestStatus >= 300) {
-                report.bestStatus = code;
-            }
-            act::service();  // a command in the answer may have started a short pulse
+            if (count < kMaxTotalChannels) batch[count++] = {r.type, r.value};
         }
     }
-    if (delivered) reportDelivered();
+    if (count) {
+        int code = hydro->sendValues(batch, count, codes, millis() - readAt);
+        ota::afterSend(code);
+        for (size_t k = 0; k < count; k++) status::line("SEND %s %d", batch[k].type, codes[k]);
+        if (code == 401 || code == 403) status::line("ERR AUTH %d", code);
+        report.bestStatus = code;
+        if (code >= 200 && code < 300) reportDelivered();
+        act::service();  // a command in the answer may have started a short pulse
+    }
     sendPresses();
-    // All values of a round share one TLS connection; do not hold its buffers until the next.
-    hydro->closeConnection();
+    if (!keepConnection()) hydro->closeConnection();
     return report;
 }
 
@@ -617,24 +696,33 @@ void runRound() {
 }
 
 // Milliseconds until the next round should start. With internet time from the last send, rounds
-// land on anchor + n × interval however much the sleep timer drifts (±1 s, the resolution of
-// NTP here). Without it, the interval minus the time awake.
+// land on anchor + n × interval however much the sleep timer drifts. Without it, the interval
+// minus the time awake.
 uint32_t untilNextRound() {
     uint32_t fallback = power::sleepMs(cfg.intervalSeconds, millis() - cycleStart);
     // A round that sent nothing did not fetch the time; after a stopped clock it would be off.
     uint64_t now = hydro && !clockStopped ? hydro->epochMs() : 0;
     if (now == 0) return fallback;
     uint64_t interval = uint64_t(cfg.intervalSeconds) * 1000;
-    if (anchorMs == 0 || anchorMs > now || now - anchorMs > 30ULL * 24 * 3600 * 1000) {
-        anchorMs = now - (millis() - cycleStart);  // this round's start
-    }
-    uint64_t next = anchorMs + ((now - anchorMs) / interval + 1) * interval;
-    uint64_t wait = next - now;
+    uint64_t started = now - (millis() - cycleStart);  // this round's start
+    if (anchorMs == 0 || anchorMs > started || now - anchorMs > 30ULL * 24 * 3600 * 1000) anchorMs = started;
+    uint64_t wait = schedule::nextSlotMs(anchorMs, interval, started, now) - now;
     return wait < 1000 ? 1000 : uint32_t(wait);
 }
 
 void sensorsOffForSleep() {
     if (!cyclesSensorPower()) return;
+    // The bus pins let go first: with their pull-ups on they would feed the unpowered sensors
+    // through their protection diodes. powerSensors() starts the buses again.
+    for (uint8_t i = 0; i < cfg.i2cCount; i++) {
+        if (!buses[i]) continue;
+#if !defined(ESP8266)
+        buses[i]->end();
+#endif
+        pinMode(cfg.i2c[i].sda, INPUT);
+        pinMode(cfg.i2c[i].scl, INPUT);
+        buses[i] = nullptr;
+    }
     power::sensorsOff(cfg);
     sensorsPowered = false;
 }
@@ -642,6 +730,7 @@ void sensorsOffForSleep() {
 [[noreturn]] void sleepDeep(uint32_t ms) {
     net::off();
     sensorsOffForSleep();
+    checkHeldInputs();
     power::saveRounds({roundIndex, anchorMs});
     power::saveReport();
     power::deepSleep(cfg, ms, wakeInputs, wakeInputCount);
@@ -675,9 +764,11 @@ void printConfigError() {
 
 void setup() {
     cycleStart = millis();
-    status::begin();
-    delay(50);
+    power::startWatchdog();
     const char* wake = power::wakeReason();
+    status::begin();
+    // Gives a serial monitor time to attach after a reset; a wake-up from sleep goes on.
+    if (strcmp(wake, "RESET") == 0) delay(50);
     status::line("BOOT fw=%s family=%s wake=%s heap=%u", HN_FW_VERSION, HN_FAMILY, wake, (unsigned)ESP.getFreeHeap());
 
     configError = loadConfig();
@@ -702,7 +793,7 @@ void setup() {
     act::begin(cfg);
     startBuses();
     createDrivers();
-    collectWakeInputs();
+    collectWakeInputs(!(timer || pin));
     if (pin && restartsEachCycle()) afterPinWake();
 
     // After a sleep without a power pin the sensors stayed powered and settled: no power-up wait
@@ -716,12 +807,11 @@ void setup() {
         poweredLong = timer || pin;
         coldSensors = !(timer || pin);
     }
-    if (cfg.mode == SleepMode::AlwaysOn || cfg.mode == SleepMode::ModemSleep) {
-        if (net::connect(cfg, kWifiTimeoutMs)) net::setPowerSave(cfg.mode == SleepMode::ModemSleep);
-    }
+    if (cfg.mode == SleepMode::AlwaysOn || cfg.mode == SleepMode::ModemSleep) connectForSend();
 }
 
 void loop() {
+    power::feedWatchdog();
     if (!configOk) {
         // Keep repeating so a monitor that attaches late still sees the reason.
         delay(kNoConfigRepeatMs);
@@ -755,7 +845,11 @@ void loop() {
 
         case SleepMode::DeepSleep:
         case SleepMode::Hibernate: {
-            // A timed output switches off on time: stay (napping) until it did.
+            // A timed output switches off on time: stay (napping, radio off) until it did.
+            if (act::pendingMs()) {
+                if (hydro) hydro->closeConnection();
+                net::off();
+            }
             for (uint32_t left = act::pendingMs(); left; left = act::pendingMs()) pause(left, true);
             sleepDeep(untilNextRound());
         }

@@ -7,6 +7,12 @@ namespace hn::power {
 // Wake cause of this boot, as printed in HN:BOOT (TIMER, PIN, RESET, ...).
 const char* wakeReason();
 
+// Restarts the board when the loop stops coming back (a library spinning on a sensor that left
+// the bus would otherwise drain the battery). ESP32 family, 5 minutes; the ESP8266 has its own.
+// feedWatchdog() from every place that may take long: the loop, waits, an image download.
+void startWatchdog();
+void feedWatchdog();
+
 // Switches the sensor supply pin on (releasing a deep sleep hold first).
 void sensorsOn(const Config& cfg);
 

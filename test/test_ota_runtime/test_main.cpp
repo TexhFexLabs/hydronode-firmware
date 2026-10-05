@@ -30,6 +30,21 @@ template<class Fn> void restarted(Fn fn) {
     try { fn(); } catch (Restarted&) { reset = true; }
     TEST_ASSERT_TRUE(reset);
 }
+// The block of oldJson with one piece replaced, as the web flasher would write it.
+std::vector<uint8_t> blockWith(const char* from, const char* to) {
+    std::string json(oldJson);
+    json.replace(json.find(from), strlen(from), to);
+    std::vector<uint8_t> b(8192);
+    b.resize(ota::encodeBlock(json.c_str(), json.size(), b.data(), b.size()));
+    return b;
+}
+// One start of the board with whatever is in flash now. True when it restarted.
+bool boot() {
+    ParseResult r = fake::config.empty() ? makeResult(ConfigError::NoPartition, "partition")
+                                         : parseBlock(fake::config.data(), fake::config.size(), cfg);
+    try { ota::begin(cfg, r); } catch (Restarted&) { return true; }
+    return false;
+}
 DriverContext awake{SleepMode::AlwaysOn, 300, 1, false, 0};
 // Answers, but its algorithm has nothing yet (or the sensor reads nothing).
 class GasDriver : public Driver {
@@ -112,7 +127,74 @@ void test_blocked_call_is_cut_off_after_two_minutes() {
     restarted([] { delay(ota::kVerifyLimitMs); });
     // On the next start a still-unconfirmed config is restored immediately.
     restarted([] { ota::begin(cfg, makeResult(ConfigError::Ok, "")); });
-    TEST_ASSERT_EQUAL_STRING("boot_failed", fake::record->result);
+    TEST_ASSERT_EQUAL_STRING("timeout", fake::record->result);
+}
+void test_firmware_cut_off_by_deadline_reports_timeout() {
+    ota::Pending p{}; p.kind = ota::PendingKind::Firmware; strcpy(p.toVersion, HN_FW_VERSION); strcpy(p.job,"job");
+    fake::record = p; fakeImageState = ESP_OTA_IMG_PENDING_VERIFY;
+    ota::begin(cfg, makeResult(ConfigError::Ok, ""));
+    restarted([] { delay(ota::kVerifyLimitMs); });
+    TEST_ASSERT_EQUAL_STRING("timeout", fake::record->result);
+    // The bootloader went back to the old firmware; it reports the reason once.
+    fakeImageState = ESP_OTA_IMG_VALID; strcpy(fake::record->toVersion, "0.5.1");
+    TEST_ASSERT_FALSE(boot());
+    HydroNode client; ota::attach(client, cfg);
+    TEST_ASSERT_TRUE(client.headers["X-Ota-Result"].find("timeout") != std::string::npos);
+}
+void test_usb_flash_after_config_rollback_is_kept() {
+    pendingConfig(); fake::config = fake::backup;
+    strcpy(fake::record->result, "boot_failed"); fake::record->reserved = 2;
+    // Flashed over USB before the result was reported; NVS (record, backup) survives that.
+    for (const char* rev : {"\"rev\":5", "\"rev\":1"}) {
+        fake::config = blockWith("\"ssid\":\"Garden\"", "\"ssid\":\"Shed\"");
+        fake::config = rev[7] == '5' ? blockWith("\"rev\":1", rev) : fake::config;
+        auto flashed = fake::config;
+        ota::Pending kept = *fake::record; auto backup = fake::backup;
+        TEST_ASSERT_FALSE(boot());
+        TEST_ASSERT_TRUE(fake::config == flashed);
+        TEST_ASSERT_FALSE(fake::record.has_value());
+        TEST_ASSERT_TRUE(fake::backup.empty());
+        TEST_ASSERT_FALSE(ota::busy());
+        fake::record = kept; fake::backup = backup;
+    }
+}
+void test_usb_flash_during_config_verification_is_kept() {
+    pendingConfig();
+    fake::config = blockWith("\"rev\":1", "\"rev\":7");
+    auto flashed = fake::config;
+    TEST_ASSERT_FALSE(boot());
+    TEST_ASSERT_TRUE(fake::config == flashed);
+    TEST_ASSERT_EQUAL(7, cfg.rev);
+    TEST_ASSERT_FALSE(fake::record.has_value());
+    TEST_ASSERT_TRUE(fake::backup.empty());
+    TEST_ASSERT_FALSE(ota::busy());
+}
+void test_rollback_without_backup_never_loops() {
+    for (uint8_t reserved : {0, 1, 2}) {
+        for (bool newConfig : {true, false}) {
+            fake::reset(); configBlock(); pendingConfig();
+            if (!newConfig) fake::config = blockWith("\"rev\":1", "\"rev\":9");
+            strcpy(fake::record->result, "boot_failed"); fake::record->reserved = reserved;
+            fake::backup.clear();
+            int restarts = 0;
+            for (int i = 0; i < 5; i++) restarts += boot() ? 1 : 0;
+            TEST_ASSERT_TRUE_MESSAGE(restarts <= 1, "restart loop");
+            TEST_ASSERT_FALSE(boot());
+        }
+    }
+}
+void test_plain_boot_does_not_read_a_missing_backup() {
+    TEST_ASSERT_FALSE(boot());
+    TEST_ASSERT_EQUAL(0, fake::backupLoads);
+}
+void test_new_firmware_with_other_version_spelling_is_verified() {
+    ota::Pending p{}; p.kind = ota::PendingKind::Firmware; strcpy(p.toVersion, "v" HN_FW_VERSION); strcpy(p.job,"job");
+    fake::record = p; fakeImageState = ESP_OTA_IMG_PENDING_VERIFY;
+    TEST_ASSERT_FALSE(boot());
+    TEST_ASSERT_TRUE(ota::busy());
+    TEST_ASSERT_EQUAL_STRING("", fake::record->result);
+    HydroNode client; ota::attach(client, cfg);
+    TEST_ASSERT_TRUE(client.headers.find("X-Ota-State") != client.headers.end());
 }
 const char* kFirmwareOffer = R"({"job":"job","family":"esp32c3","version":"0.5.1","size":4,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sig":"sig","keyId":"dev","url":"/image"})";
 // One accepted answer of the server, with or without the offer in it.
@@ -241,6 +323,12 @@ int main() {
     RUN_TEST(test_lost_state_record_still_recovers_config_backup);
     RUN_TEST(test_firmware_with_invalid_config_rolls_back_at_boot);
     RUN_TEST(test_blocked_call_is_cut_off_after_two_minutes);
+    RUN_TEST(test_firmware_cut_off_by_deadline_reports_timeout);
+    RUN_TEST(test_usb_flash_after_config_rollback_is_kept);
+    RUN_TEST(test_usb_flash_during_config_verification_is_kept);
+    RUN_TEST(test_rollback_without_backup_never_loops);
+    RUN_TEST(test_plain_boot_does_not_read_a_missing_backup);
+    RUN_TEST(test_new_firmware_with_other_version_spelling_is_verified);
     RUN_TEST(test_offer_waits_until_timed_output_finished);
     RUN_TEST(test_offer_cancelled_during_pulse_is_never_carried_out);
     RUN_TEST(test_later_answer_without_offer_drops_it_within_the_round);

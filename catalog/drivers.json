@@ -170,11 +170,21 @@
       "options": [],
       "bootMs": 0,
       "powerUpMs": 0,
-      "waitMs": 750,
+      "waitMs": 760,
       "readMs": 20,
       "sleepUa": 1,
       "activeMa": 1.5,
-      "sleep": [],
+      "sleep": [
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "waitMs": 200,
+          "note": "reads 10 bit (0.25 °C) in rounds between sleeps, a quarter of the conversion time; accurate to ±0.5 °C either way."
+        }
+      ],
       "wiring": "Red to 3.3 V, black to GND, yellow to the data pin. 4.7 kΩ between yellow and 3.3 V.",
       "libs": [
         "OneWireNg",
@@ -443,8 +453,8 @@
         }
       ],
       "options": [],
-      "bootMs": 0,
-      "powerUpMs": 2,
+      "bootMs": 2,
+      "powerUpMs": 0,
       "waitMs": 0,
       "readMs": 15,
       "sleepUa": 0.3,
@@ -486,8 +496,8 @@
         }
       ],
       "options": [],
-      "bootMs": 0,
-      "powerUpMs": 2,
+      "bootMs": 2,
+      "powerUpMs": 0,
       "waitMs": 0,
       "readMs": 10,
       "sleepUa": 0.3,
@@ -688,7 +698,7 @@
         }
       ],
       "bootMs": 0,
-      "powerUpMs": 0,
+      "powerUpMs": 10,
       "waitMs": 0,
       "readMs": 5,
       "sleepUa": 20,
@@ -740,10 +750,10 @@
         }
       ],
       "options": [],
-      "bootMs": 0,
-      "powerUpMs": 2,
-      "waitMs": 0,
-      "readMs": 200,
+      "bootMs": 2,
+      "powerUpMs": 0,
+      "waitMs": 200,
+      "readMs": 5,
       "sleepUa": 0.2,
       "activeMa": 3,
       "sleep": [
@@ -1001,7 +1011,7 @@
         }
       ],
       "bootMs": 1000,
-      "powerUpMs": 5000,
+      "powerUpMs": 1550,
       "waitMs": 0,
       "readMs": 10,
       "sleepUa": 15000,
@@ -1061,8 +1071,8 @@
       "options": [],
       "bootMs": 0,
       "powerUpMs": 0,
-      "waitMs": 0,
-      "readMs": 600,
+      "waitMs": 3500,
+      "readMs": 10,
       "sleepUa": 0.5,
       "activeMa": 0.05,
       "sleep": [],
@@ -1218,8 +1228,8 @@
         }
       ],
       "options": [],
-      "bootMs": 0,
-      "powerUpMs": 2,
+      "bootMs": 2,
+      "powerUpMs": 0,
       "waitMs": 0,
       "readMs": 20,
       "sleepUa": 2,
@@ -1304,8 +1314,8 @@
         }
       ],
       "options": [],
-      "bootMs": 0,
-      "powerUpMs": 5,
+      "bootMs": 5,
+      "powerUpMs": 0,
       "waitMs": 0,
       "readMs": 20,
       "sleepUa": 1,
@@ -1346,8 +1356,8 @@
         }
       ],
       "options": [],
-      "bootMs": 0,
-      "powerUpMs": 1,
+      "bootMs": 1,
+      "powerUpMs": 0,
       "waitMs": 0,
       "readMs": 20,
       "sleepUa": 0.3,
@@ -1429,8 +1439,8 @@
         }
       ],
       "options": [],
-      "bootMs": 0,
-      "powerUpMs": 2,
+      "bootMs": 2,
+      "powerUpMs": 0,
       "waitMs": 130,
       "readMs": 5,
       "sleepUa": 0.3,
@@ -1467,7 +1477,7 @@
       "bootMs": 0,
       "powerUpMs": 0,
       "waitMs": 0,
-      "readMs": 350,
+      "readMs": 400,
       "sleepUa": 2.3,
       "activeMa": 0.4,
       "sleep": [],
@@ -1555,7 +1565,7 @@
       ],
       "options": [],
       "bootMs": 2000,
-      "powerUpMs": 4000,
+      "powerUpMs": 4500,
       "waitMs": 0,
       "readMs": 30,
       "sleepUa": 6000,
@@ -1657,6 +1667,17 @@
           "waitMs": 0,
           "sleepUa": 60000,
           "note": "keeps its fan running between rounds (about 60 mA). Wire SET to a GPIO to let it sleep."
+        },
+        {
+          "modes": [
+            "ALWAYS_ON",
+            "MODEM_SLEEP"
+          ],
+          "when": {
+            "$pin": false
+          },
+          "waitMs": 0,
+          "note": "keeps its fan running without SET wired, so a value is always ready."
         }
       ],
       "wiring": "5 V to VIN, GND, SDA and SCL to the I²C bus. The fan needs 30 s after power-up for stable values.",
@@ -1726,7 +1747,7 @@
       "bootMs": 0,
       "powerUpMs": 0,
       "waitMs": 30000,
-      "readMs": 1000,
+      "readMs": 2300,
       "sleepUa": 200,
       "activeMa": 60,
       "sleep": [
@@ -1756,6 +1777,17 @@
           "waitMs": 0,
           "sleepUa": 60000,
           "note": "keeps its fan running between rounds (about 60 mA). Wire SET to a GPIO to let it sleep."
+        },
+        {
+          "modes": [
+            "ALWAYS_ON",
+            "MODEM_SLEEP"
+          ],
+          "when": {
+            "$pin2": false
+          },
+          "waitMs": 0,
+          "note": "keeps its fan running without SET wired, so a value is always ready."
         }
       ],
       "wiring": "VCC to 5 V, GND to GND, the sensor's TX to the pin. Its RX stays unconnected. The fan needs 30 s after power-up for stable values.",

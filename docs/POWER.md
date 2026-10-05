@@ -14,9 +14,20 @@ the backend and the firmware the same thing about every sensor. Since 0.6.0.
    modes the board light-sleeps meanwhile (`HN:` lines stay quiet), radio off.
 3. **Read, then put the sensors back to sleep** (`sleep()`: SCD41 power-down, fan SET low, SEN5x
    idle or gas-only).
-4. **Only then the radio.** A round with no value due does not connect at all. All values share
-   one TLS connection.
-5. **Sleep** as deep as the config says, until the next round on the internet-time grid.
+4. **Only then the radio.** A round with no value due does not connect at all. All values go out
+   in one request with the time they were read (since 0.7.0). Always on and modem sleep with
+   rounds of a minute or less keep the TLS connection for the next round (the handshake is 2 to
+   3 s); the sleeping modes close it. After two failed connects in a row a round tries the WiFi
+   for 8 s instead of 20 s.
+5. **Sleep** as deep as the config says, until the next round on the internet-time grid. The slot
+   a round served is the one nearest to when it started, so a timer that woke early never runs
+   the same slot twice. A wake pin still held at its wake level (a stuck rain contact) is left
+   unarmed until it lets go, instead of waking the board over and over.
+
+A task watchdog (ESP32 family, 5 minutes) restarts a board whose loop stops coming back, for
+example a library waiting forever on a sensor that left the bus. A sensor that did not answer at
+start-up is tried again every round; I²C sensors whose library cannot tell a lost sensor from a
+value are checked for an answer before each read (`missing` instead of a made-up value).
 
 The serial line `HN:COST awake=… nap=… wifi=…` closes every round; the same numbers go to the
 server with the next round (below).
@@ -25,18 +36,25 @@ server with the next round (below).
 
 | Sensor | Between rounds | Per due round |
 |---|---|---|
-| SHT4x, SHT3x, AHT, HTU21D, SHTC3, MS8607, BME280, BMP280, BMP3xx, LPS22, BME680 | sleeps by itself (single shot / forced mode) | one measurement, ≤ 200 ms |
-| BH1750, MCP9808, TMP117, DPS310, VEML7700, TSL2591, LTR390 | shut down / standby | one-shot, the board naps during the conversion |
+| SHT4x, SHT3x, AHT, HTU21D, SHTC3, MS8607, BME280, BMP280, BMP3xx, LPS22 | sleeps by itself (single shot / forced mode) | one measurement, ≤ 200 ms |
+| BME680 | sleeps (forced mode) | measurement and heater napped, about 200 ms |
+
+The BME280 starts without the library's 100 ms wait for a normal-mode value it never reads: chip
+ID, a reset only after power-up, the calibration words. Sensors with a start-up time after power-on
+(Bosch 2 ms, LPS22 5 ms, SHTC3 1 ms, TMP117 2 ms, SCD4x 1 s, SCD30 2 s) get it before the first
+command; the catalog's `bootMs`/`powerUpMs` are the same numbers the firmware waits.
+| BH1750, MCP9808, TMP117, DPS310, TSL2591, LTR390 | shut down / standby | one-shot, the board naps during the conversion |
+| VEML7700 | shut down, 0.5 µA | gain and integration time stepped like the library's auto mode, every step napped (0.2 s in daylight, up to 3.5 s in the dark) |
 | INA219, INA226, INA260, ADS1115 | power-down / single shot | triggered conversion |
-| DS18B20 | idle | 750 ms conversion, napped |
-| SCD41 (sleeping modes) | power-down, 0.4 µA | wake, one shot thrown away, one shot kept (2 × 5 s napped) |
-| SCD40, SCD41 awake | measures every 5 s by itself | reads the latest value |
+| DS18B20 | idle | conversion napped: 12 bit (0.0625 °C, 750 ms) when the board stays awake, 10 bit (0.25 °C, 188 ms) when it sleeps between rounds; ±0.5 °C either way |
+| SCD41 (sleeping modes) | power-down, 0.4 µA | wake, one shot thrown away, one shot kept (2 × 5 s napped; the library's call would wait them awake) |
+| SCD40, SCD41 awake | measures every 5 s by itself | waits (napping) for the next value, then reads it |
 | SCD30 | measures by itself at 0.9 × the round spacing (max 1800 s) | reads the waiting value. Never reset after a sleep (Adafruit's `begin()` would) |
-| PMS5003, PMSA003I | fan asleep with SET wired (held low through deep sleep), else running | fan on, 30 s run-up napped |
+| PMS5003, PMSA003I | fan asleep with SET wired (held low through deep sleep), else running | fan on, 30 s run-up napped; the PMS5003 drops buffered frames and reads the next one (≤ 2.3 s awake) |
 | SEN5x | idle, or gas-only mode when VOC/NOx are sent (indices keep learning on the sensor) | full measurement, 10 s run-up napped |
-| SGP40, SGP41 (VOC) | light sleep: a reading every 10 s with the heater off (Sensirion low power) | latest index |
+| SGP40, SGP41 (VOC) | light sleep: a reading every 10 s with the heater off (Sensirion low power); the SGP40 measures 30 ms (the library waits 250 ms) | latest index |
 | SGP30, SGP41 NOx | awake modes only: a reading every second | latest value |
-| Rain gauge | each tip wakes the board ~20 ms, counted in RTC memory | the sum since the last round |
+| Rain gauge | each tip wakes the board ~20 ms, counted in RTC memory; awake, contact bounce within 50 ms counts once | the sum since the last round |
 | Flow meter | awake modes only (hundreds of pulses per second) | the sum |
 | Button | a press wakes the board, toggles locally, goes out right away | — |
 | Relay, LED, output | level held through light and deep sleep (ESP32 family) | commands arrive with the round |

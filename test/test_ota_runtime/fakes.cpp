@@ -15,8 +15,9 @@ std::optional<hn::ota::Pending> record;
 std::vector<uint8_t> config, backup;
 bool interruptWrite = false, interruptCleanup = false;
 uint32_t pulseLeft = 0;
+unsigned backupLoads = 0;
 void reset() {
-    record.reset(); config.clear(); backup.clear(); interruptWrite = false; interruptCleanup = false; pulseLeft = 0;
+    record.reset(); config.clear(); backup.clear(); interruptWrite = false; interruptCleanup = false; pulseLeft = 0; backupLoads = 0;
     Ticker::callback = nullptr; fakeMillis = 0; rolledBack = false;
     fakeImageState = ESP_OTA_IMG_VALID; downloadedImages = 0;
 }
@@ -48,7 +49,9 @@ bool loadPending(Pending& out) { if (!fake::record) return false; out = *fake::r
 bool savePending(const Pending& p) { fake::record = p; return true; }
 void clearPending() { fake::record.reset(); }
 bool saveBackup(const uint8_t* p, size_t n) { fake::backup.assign(p, p+n); return true; }
+bool hasBackup() { return !fake::backup.empty(); }
 size_t loadBackup(uint8_t* p, size_t cap) {
+    fake::backupLoads++;
     if (fake::backup.empty() || fake::backup.size() > cap) return 0;
     memcpy(p, fake::backup.data(), fake::backup.size()); return fake::backup.size();
 }
@@ -65,6 +68,7 @@ bool isActuator(const char* id) { return strcmp(id,"relay") == 0 || strcmp(id,"b
 void begin(const Config&) {}
 void attach(HydroNode&) {}
 void service() {}
+void advance(uint32_t) {}
 bool busy() { return fake::pulseLeft > 0; }
 uint32_t pendingMs() { return fake::pulseLeft; }
 const char* takePress() { return nullptr; }
@@ -81,6 +85,8 @@ const char* lastError() { return nullptr; }
 uint32_t lastConnectMs() { return 0; }
 }
 namespace hn::power {
+void startWatchdog() {}
+void feedWatchdog() {}
 const char* wakeReason() { return "RESET"; }
 void sensorsOn(const Config&) {}
 void sensorsOff(const Config&) {}

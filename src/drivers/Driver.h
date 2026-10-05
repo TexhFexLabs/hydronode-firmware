@@ -79,8 +79,13 @@ public:
     // Read after WiFi is up instead of before (the WiFi signal strength).
     virtual bool afterConnect() const { return false; }
 
-    // Why the last begin()/read() gave no value, nullptr when it did.
+    // Compensates with ambient() in read(): read after the sensors that measure it.
+    virtual bool usesAmbient() const { return false; }
+
+    // Why this round's begin()/start()/read() gave no value, nullptr when it did. The firmware
+    // clears it at the start of every round the device is due in.
     const char* problem() const { return problem_; }
+    void resetProblem() { problem_ = nullptr; }
 
     const DeviceConfig& cfg() const { return cfg_; }
 
@@ -90,6 +95,9 @@ public:
 
 protected:
     void setProblem(const char* p) { problem_ = p; }
+    // Before read() of an I²C sensor whose library cannot tell a lost sensor from a value: it
+    // still answers on its address. Sets kMissing when not.
+    bool stillThere(TwoWire* bus);
     // Whether a value with quantity `q` is sent at all.
     bool sends(const char* q) const;
 

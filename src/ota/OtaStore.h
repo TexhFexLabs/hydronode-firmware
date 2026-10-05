@@ -36,6 +36,8 @@ void clearPending();
 
 // The old config block, kept until the new one is verified.
 bool saveBackup(const uint8_t* block, size_t len);
+// Whether there is a backup, without reading it (every boot asks).
+bool hasBackup();
 // Copies the backup into `out`; returns its length, 0 when there is none.
 size_t loadBackup(uint8_t* out, size_t cap);
 void clearBackup();

@@ -35,6 +35,16 @@ PinWake afterPinWake(int64_t untilRoundMs, bool pressed, bool wakePin, bool upda
     return pressed ? PinWake::Send : PinWake::Sleep;
 }
 
+uint64_t nextSlotMs(uint64_t anchorMs, uint64_t intervalMs, uint64_t roundStartMs, uint64_t nowMs) {
+    if (intervalMs == 0) return nowMs;
+    uint64_t served = roundStartMs > anchorMs ? (roundStartMs - anchorMs + intervalMs / 2) / intervalMs : 0;
+    uint64_t next = anchorMs + (served + 1) * intervalMs;
+    if (next <= nowMs) next += ((nowMs - next) / intervalMs + 1) * intervalMs;
+    return next;
+}
+
+uint32_t wifiTimeoutMs(uint16_t failuresInARow) { return failuresInARow >= 2 ? 8000 : 20000; }
+
 size_t formatReport(const ReportData& d, const char* problems, char* out, size_t cap) {
     if (cap == 0) return 0;
     int n = snprintf(out, cap, "awake=%lu;nap=%lu;wifi=%lu", (unsigned long)d.awakeMs, (unsigned long)d.napMs,

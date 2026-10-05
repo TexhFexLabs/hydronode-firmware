@@ -70,9 +70,11 @@ flasher shows them as a checklist. Secrets are never printed.
 
 The board measures in rounds, one per interval. A value can be sent every n-th round only
 (`"n"` in the config). Rounds start on the interval, not interval plus awake time: the firmware
-subtracts the time it was awake from the sleep. All values of a round share one TLS
-connection; on the ESP8266 (160 MHz) the handshake takes about 3 s, every further value about
-0.6 s. `catalog/boards.json` carries these timings per family, the web app adds them up to the
+subtracts the time it was awake from the sleep. All values of a round go out in one request
+(since 0.7.0, HydroNode-Library 1.7.0), stamped with the time they were read; on the ESP8266
+(160 MHz) the handshake takes about 3 s, every further value adds a few bytes to the request.
+Always on and modem sleep with rounds of a minute or less keep the TLS connection open from one
+round to the next. `catalog/boards.json` carries these timings per family, the web app adds them up to the
 fastest interval a configuration can keep.
 
 ## Outputs and commands

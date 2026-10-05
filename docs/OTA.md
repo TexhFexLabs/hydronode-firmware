@@ -12,7 +12,7 @@ user guide is at <https://hydronode.tech/docs/features/fleet>.
 
 ## What the board reports
 
-Every request carries the version and how the board is doing (HydroNode-Library 1.6.0):
+Every request carries the version and how the board is doing (HydroNode-Library 1.6.0 and later):
 
 ```
 X-Firmware: hydronode/0.5.0 esp32c3 ota cfg=14
@@ -151,11 +151,19 @@ Confirmation is saved before backup cleanup, so a reset during cleanup keeps the
 A missing ESP8266 state record also restores a surviving backup. Any second boot before
 config confirmation restores the old config.
 
+A USB flash leaves the update record and backup in place (the flasher erases only what it
+writes). The firmware notices it and drops both instead of rolling back over the fresh config:
+a rolled-back record whose backup is not what is on the board anymore, or a config being verified
+whose revision is neither the old nor the offered one. A rollback that finds no backup forgets the
+update and keeps running with what is on the board, it never restarts over and over.
+
 Strict verification distinguishes a gas algorithm warming up from failed sensor communication.
 Failed initialization, failed raw samples and missing drivers block confirmation. A two-minute
 timer restarts a stalled verification even when a driver or network call does not return.
-The next boot rolls back unconfirmed firmware or restores unconfirmed config. A timer reset is
-reported as `boot_failed` when no more specific verdict could be saved.
+The next boot rolls back unconfirmed firmware or restores unconfirmed config. The timer writes
+`timeout` into the record before it restarts, so the old firmware or config reports that reason.
+A crash before the verdict is reported as `boot_failed`. The version check treats `v0.7.0` and
+`0.7.0` alike, as the offer check does.
 
 Run `pio test -e native-ota` to exercise the real OTA state machine and measurement loop against
 simulated flash, resets and network responses. Run `python tools/test-sign-release.py` to verify

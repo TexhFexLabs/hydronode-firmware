@@ -26,6 +26,10 @@ void attach(HydroNode& hydro);
 // Ends timed pulses and reads the buttons. Call at least every 10 ms while awake.
 void service();
 
+// After an ESP8266 light sleep, during which millis() stood still: moves the timed switch-offs
+// and the button debounce on by the time slept and switches off what is due now.
+void advance(uint32_t sleptMs);
+
 // Something needs service() soon: a button to watch or a pulse still running.
 bool busy();
 
