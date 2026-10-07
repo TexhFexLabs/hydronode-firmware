@@ -13,6 +13,16 @@ C6) then takes signed firmware updates and config updates over the air from the 
 view; the ESP8266 takes config updates. A board that fails its check after an update goes back
 to what it ran before by itself. See [Updates over the air](#updates-over-the-air).
 
+## Use it
+
+You do not need to build this repository to use the firmware. The Device Builder in the HydroNode
+web app (Fleet, Device builder) picks the board, sensors and power mode and flashes the release
+build from the browser:
+
+- [An ESP32-C3 sensor without writing a single line of code](https://hydronode.tech/blog/esp32-c3-without-code/): the whole flow with screenshots
+- [Update every device over the air with Fleet](https://hydronode.tech/blog/fleet-ota-updates/): jobs, templates, verify modes and rollback
+- [Device Builder reference](https://hydronode.tech/docs/features/device-builder/) and [Fleet reference](https://hydronode.tech/docs/features/fleet/)
+
 ## Layout
 
 | Path | Content |
