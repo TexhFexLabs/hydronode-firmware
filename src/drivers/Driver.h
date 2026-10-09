@@ -23,6 +23,7 @@ struct DriverContext {
     uint16_t every;      // rounds between two due rounds of this device (its smallest "every")
     bool powerPin;       // the sensor supply is switched off between rounds
     uint16_t adcRangeMv;
+    const BatteryConfig* battery;  // the config's battery block (capacity, chemistry, cells)
 
     bool sleeps() const { return mode == SleepMode::LightSleep || restarts(); }
     bool restarts() const { return mode == SleepMode::DeepSleep || mode == SleepMode::Hibernate; }

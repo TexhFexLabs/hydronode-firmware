@@ -174,7 +174,7 @@ int8_t findOutput(const char* name) {
 
 bool isActuator(const char* driver) { return isOutput(driver) || strcmp(driver, "button") == 0; }
 
-void begin(const Config& cfg) {
+void begin(const Config& cfg, bool safe) {
     outputCount = 0;
     buttonCount = 0;
 #if defined(ESP8266)
@@ -194,8 +194,9 @@ void begin(const Config& cfg) {
             o.on = strcmp(dev.text("start", "OFF"), "ON") == 0;
             uint8_t index = uint8_t(outputCount - 1);
             savedState[index] = 0;
-            bool restored = recall(index, o, o.on, o.level);
+            bool restored = !safe && recall(index, o, o.on, o.level);
             if (restored) savedState[index] = packState(o);
+            if (safe) o.on = false;
             // Level first, then output, then the hold of the last deep sleep released: an
             // active-low relay must not click during boot, nor when the board wakes up.
             if (!o.dim) presetLevel(o.pin, o.on != o.activeLow);
@@ -204,7 +205,7 @@ void begin(const Config& cfg) {
             power::releaseLevel(o.dev->pin);
             apply(o);
             status::line("OUT %s %s pin=%d%s", dev.text("cmd", dev.driver), o.on ? "on" : "off", dev.pin,
-                         restored ? " restored" : "");
+                         restored ? " restored" : safe ? " battery low" : "");
         } else if (strcmp(dev.driver, "button") == 0) {
             Button& b = buttons[buttonCount++];
             b = {};
@@ -222,6 +223,31 @@ void begin(const Config& cfg) {
     for (uint8_t i = 0; i < buttonCount; i++) {
         status::line("BTN pin=%d reports=%s toggles=%s", buttons[i].pin, buttons[i].type ? buttons[i].type : "-",
                      buttons[i].target >= 0 ? outputs[buttons[i].target].dev->text("cmd", "-") : "-");
+    }
+}
+
+void safeOff() {
+    for (uint8_t i = 0; i < outputCount; i++) {
+        Output& o = outputs[i];
+        if (!o.on && !o.pulsing) continue;
+        o.pulsing = false;
+        o.on = false;
+        apply(o);
+        status::line("OUT %s off battery low", o.dev->text("cmd", o.dev->driver));
+    }
+}
+
+void resume() {
+    for (uint8_t i = 0; i < outputCount; i++) {
+        Output& o = outputs[i];
+        bool on = false;
+        uint8_t level = o.level;
+        if (!recall(i, o, on, level)) continue;
+        o.on = on;
+        o.level = level;
+        savedState[i] = packState(o);
+        apply(o);
+        status::line("OUT %s %s restored", o.dev->text("cmd", o.dev->driver), on ? "on" : "off");
     }
 }
 

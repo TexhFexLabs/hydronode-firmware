@@ -43,6 +43,37 @@ constexpr uint32_t kMaxIntervalSeconds = 7 * 24 * 3600;
 
 enum class SleepMode : uint8_t { AlwaysOn, ModemSleep, LightSleep, DeepSleep, Hibernate };
 
+enum class PowerSource : uint8_t { Usb, Battery, Solar };
+enum class Chemistry : uint8_t { Unknown, LiPo, LiIon, LiFePO4, Custom };
+
+// Battery thresholds in pack mV (volts per cell x cells), checked like everywhere in HydroNode
+// (Power-Sync rules): standby + 50 <= recovery, recovery + 50 <= save,
+// recovery + 100 <= resume <= save + 400, each inside the chemistry's per cell range.
+constexpr uint16_t kGapStandbyMv = 50;
+constexpr uint16_t kGapRecoveryMv = 50;
+constexpr uint16_t kGapResumeMv = 100;
+constexpr uint16_t kResumeAboveSaveMv = 400;
+constexpr uint8_t kMaxCells = 16;
+constexpr uint32_t kMaxCapacityMah = 100000;
+
+// "battery" block (firmware 0.8.0). Missing block = powered over USB: no thresholds, the board
+// reports src=usb.
+//   "battery": {"src":"bat","chem":"lipo","cells":1,"mah":2000,
+//               "save":3500,"rec":3300,"sby":3200,"res":3600,"rev":7}
+struct BatteryConfig {
+    bool present;
+    PowerSource source;
+    Chemistry chemistry;
+    uint8_t cells;          // 1 when not given
+    uint32_t capacityMah;   // 0 = not given
+    bool thresholds;        // all four below are set
+    uint16_t saveMv;
+    uint16_t recoveryMv;
+    uint16_t standbyMv;
+    uint16_t resumeMv;
+    uint32_t rev;           // settings revision the backend wrote, 0 = none
+};
+
 enum class ConfigError : uint8_t {
     Ok,
     NoPartition,
@@ -113,6 +144,7 @@ struct Config {
     int8_t sensorPowerPin;   // -1 = sensors always powered
     bool fastReconnect;
     uint16_t adcRangeMv;     // ESP8266 A0: millivolts at full scale (board divider), else unused
+    BatteryConfig battery;
     I2cBusConfig i2c[kMaxI2cBuses];
     uint8_t i2cCount;
     DeviceConfig devices[kMaxDevices];
@@ -139,6 +171,14 @@ ParseResult parsePayload(const char* json, size_t len, Config& out);
 
 // Both steps in one.
 ParseResult parseBlock(const uint8_t* block, size_t blockLen, Config& out);
+
+// Per cell range of a chemistry in mV (LiPo and Li-ion 2800..4100, LiFePO4 2500..3400; unknown
+// = LiPo). Custom has none here: 0/0, only the gaps are checked.
+void perCellRangeMv(Chemistry chemistry, uint16_t& minMv, uint16_t& maxMv);
+
+// Bits of the thresholds that break a rule: 1 save, 2 recovery, 4 standby, 8 resume. 0 = fine.
+uint8_t checkThresholds(uint16_t saveMv, uint16_t recoveryMv, uint16_t standbyMv, uint16_t resumeMv, uint8_t cells,
+                        Chemistry chemistry);
 
 const char* errorName(ConfigError error);
 const char* sleepModeName(SleepMode mode);

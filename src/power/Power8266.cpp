@@ -8,6 +8,7 @@
 #include <coredecls.h>
 
 #include "Power.h"
+#include "power/Battery.h"
 #include "status/Status.h"
 
 extern "C" {
@@ -24,6 +25,8 @@ constexpr uint32_t kRoundMagic = 0x484E5244;  // "HNRD"
 constexpr uint32_t kRoundSlot = 4;            // slots 4..7
 constexpr uint32_t kReportMagic = 0x484E5250;  // "HNRP"
 constexpr uint32_t kReportSlot = 16;           // slots 16..23 (WiFi uses 8..11, outputs 64+)
+constexpr uint32_t kBatteryMagic = 0x484E4241;  // "HNBA"
+constexpr uint32_t kBatterySlot = 24;           // slots 24..32: magic + BatteryState
 
 struct StoredReport {
     uint32_t magic;
@@ -31,6 +34,14 @@ struct StoredReport {
 };
 static_assert(sizeof(StoredReport) <= 8 * 4, "report does not fit its RTC slots");
 StoredReport stored{};
+
+struct StoredBattery {
+    uint32_t magic;
+    BatteryState state;
+};
+StoredBattery battery{};
+uint64_t bootClockMs = 0;
+uint32_t sleptMs = 0;  // light sleep this boot: millis() stood still
 
 struct LongSleep {
     uint32_t magic;
@@ -160,6 +171,7 @@ void lightSleep(const Config& cfg, uint32_t ms, const WakeInput*, uint8_t, bool 
     wifi_fpm_set_sleep_type(LIGHT_SLEEP_T);
     wifi_fpm_open();
     wifi_fpm_set_wakeup_cb(onWake);
+    sleptMs += ms;
     uint32_t left = ms;
     while (left > 0) {
         uint32_t chunk = left > 260000 ? 260000 : left;
@@ -175,8 +187,28 @@ void lightSleep(const Config& cfg, uint32_t ms, const WakeInput*, uint8_t, bool 
 void deepSleep(const Config& cfg, uint32_t ms, const WakeInput*, uint8_t) {
     status::line("SLEEP DEEP %lu.%02lu", (unsigned long)(ms / 1000), (unsigned long)(ms % 1000 / 10));
     (void)cfg;
+    battery.state.clockMs = clockMs() + ms;
+    saveBattery();
     sleepChunk(ms);
 }
+
+BatteryState& batteryState() { return battery.state; }
+
+void loadBattery(bool fresh) {
+    ESP.rtcUserMemoryRead(kBatterySlot, reinterpret_cast<uint32_t*>(&battery), sizeof(battery));
+    if (fresh || battery.magic != kBatteryMagic) {
+        battery = {kBatteryMagic, {}};
+        battery.state.chargeMah = NAN;
+    }
+    bootClockMs = battery.state.clockMs;
+}
+
+void saveBattery() {
+    battery.magic = kBatteryMagic;
+    ESP.rtcUserMemoryWrite(kBatterySlot, reinterpret_cast<uint32_t*>(&battery), sizeof(battery));
+}
+
+uint64_t clockMs() { return bootClockMs + millis() + sleptMs; }
 
 }  // namespace hn::power
 

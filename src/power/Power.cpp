@@ -13,6 +13,7 @@
 #include <driver/rtc_io.h>
 #endif
 
+#include "power/Battery.h"
 #include "status/Status.h"
 
 namespace hn::power {
@@ -126,6 +127,10 @@ RTC_DATA_ATTR Rounds savedRounds = {0, 0};
 RTC_DATA_ATTR uint32_t reportMagic = 0;
 RTC_DATA_ATTR ReportState savedReport = {};
 RTC_DATA_ATTR int64_t nextRoundUs = 0;
+constexpr uint32_t kBatteryMagic = 0x484E4241;  // "HNBA"
+RTC_DATA_ATTR uint32_t batteryMagic = 0;
+RTC_DATA_ATTR BatteryState savedBattery = {};
+uint64_t bootClockMs = 0;  // savedBattery.clockMs at boot
 
 int64_t nowUs() {
     struct timeval tv;
@@ -245,6 +250,8 @@ void deepSleep(const Config& cfg, uint32_t ms, const WakeInput* inputs, uint8_t 
                  (unsigned long)(ms % 1000 / 10));
     status::flush();
     setNextRound(ms);
+    savedBattery.clockMs = clockMs() + ms;
+    saveBattery();
     esp_sleep_enable_timer_wakeup(uint64_t(ms) * 1000ULL);
     if (hibernate) {
         // Power down what the timer does not need. Held pins (sensor supply, fan SET) need the RTC
@@ -252,12 +259,16 @@ void deepSleep(const Config& cfg, uint32_t ms, const WakeInput* inputs, uint8_t 
 #if SOC_PM_SUPPORT_RTC_PERIPH_PD
         if (keptCount == 0) esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
 #endif
+        // Battery thresholds keep the guard's memory: without it a wake-up between Save and
+        // Resume would count as a fresh start and wait in Recovery.
+        if (!battery::guards(cfg)) {
 #if SOC_PM_SUPPORT_RTC_SLOW_MEM_PD
-        esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
+            esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
 #endif
 #if SOC_PM_SUPPORT_RTC_FAST_MEM_PD
-        esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
+            esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
 #endif
+        }
     } else {
         armDeep(inputs, count);
     }
@@ -295,6 +306,21 @@ void loadReport(bool fresh) {
 void saveReport() { reportMagic = kReportMagic; }
 
 void resumeLongSleep(const Config&) {}
+
+BatteryState& batteryState() { return savedBattery; }
+
+void loadBattery(bool fresh) {
+    if (fresh || batteryMagic != kBatteryMagic) {
+        savedBattery = {};
+        savedBattery.chargeMah = NAN;
+        batteryMagic = kBatteryMagic;
+    }
+    bootClockMs = savedBattery.clockMs;
+}
+
+void saveBattery() { batteryMagic = kBatteryMagic; }
+
+uint64_t clockMs() { return bootClockMs + millis(); }
 
 }  // namespace hn::power
 

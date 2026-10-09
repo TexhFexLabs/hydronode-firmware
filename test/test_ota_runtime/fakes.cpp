@@ -65,7 +65,7 @@ void Sha256::finishHex(char out[65]) { memset(out, 'a', 64); out[64] = 0; }
 }
 namespace hn::act {
 bool isActuator(const char* id) { return strcmp(id,"relay") == 0 || strcmp(id,"button") == 0; }
-void begin(const Config&) {}
+void begin(const Config&, bool) {}
 void attach(HydroNode&) {}
 void service() {}
 void advance(uint32_t) {}
@@ -75,6 +75,8 @@ const char* takePress() { return nullptr; }
 uint8_t wakeInputs(power::WakeInput*, uint8_t) { return 0; }
 bool wakePress(int8_t) { return false; }
 bool hasPresses() { return false; }
+void safeOff() {}
+void resume() {}
 }
 namespace hn::net {
 bool connect(const Config&, uint32_t) { return true; }
@@ -105,6 +107,10 @@ void saveReport() {}
 Rounds loadRounds(bool) { return {0,0}; }
 void saveRounds(const Rounds&) {}
 void resumeLongSleep(const Config&) {}
+BatteryState& batteryState() { static BatteryState s{}; return s; }
+void loadBattery(bool) {}
+void saveBattery() {}
+uint64_t clockMs() { return millis(); }
 }
 namespace hn::status { void begin() {} void line(const char*, ...) {} void flush() {} }
 namespace hn {

@@ -136,6 +136,14 @@
     "btn": {
       "name": "Press",
       "unit": ""
+    },
+    "pct": {
+      "name": "Battery level",
+      "unit": "%"
+    },
+    "crate": {
+      "name": "Charge rate",
+      "unit": "%/h"
     }
   },
   "drivers": [
@@ -1122,6 +1130,14 @@
             "POWER",
             "SOLAR_POWER"
           ]
+        },
+        {
+          "q": "pct",
+          "defaultType": "BATTERY_PERCENTAGE",
+          "typeOptions": [
+            "BATTERY_PERCENTAGE"
+          ],
+          "minFirmware": "0.8.0"
         }
       ],
       "options": [
@@ -1135,6 +1151,12 @@
             "16V_400mA"
           ],
           "default": "32V_2A"
+        },
+        {
+          "key": "battery",
+          "label": "Count battery charge (needs the capacity)",
+          "type": "bool",
+          "default": false
         }
       ],
       "bootMs": 0,
@@ -1144,7 +1166,7 @@
       "sleepUa": 15,
       "activeMa": 1,
       "sleep": [],
-      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. VIN+ and VIN− go in series into the measured circuit, up to 26 V. A0/A1 bridges set the address (0x40 to 0x45). The smallest range that fits gives the finest current resolution.",
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. VIN+ and VIN− go in series into the measured circuit, up to 26 V. A0/A1 bridges set the address (0x40 to 0x45). The smallest range that fits gives the finest current resolution. To count battery charge, put the shunt between battery and the rest of the board: IN+ (V+) to the board and charger, IN− (V−) to the battery +. Charging current then reads positive.",
       "libs": [
         "Adafruit INA219",
         "Adafruit BusIO"
@@ -1958,6 +1980,14 @@
             "POWER",
             "SOLAR_POWER"
           ]
+        },
+        {
+          "q": "pct",
+          "defaultType": "BATTERY_PERCENTAGE",
+          "typeOptions": [
+            "BATTERY_PERCENTAGE"
+          ],
+          "minFirmware": "0.8.0"
         }
       ],
       "options": [
@@ -1976,6 +2006,12 @@
           "min": 0.001,
           "max": 100,
           "default": 0.8
+        },
+        {
+          "key": "battery",
+          "label": "Count battery charge (needs the capacity)",
+          "type": "bool",
+          "default": false
         }
       ],
       "bootMs": 0,
@@ -1985,7 +2021,7 @@
       "sleepUa": 0.5,
       "activeMa": 0.35,
       "sleep": [],
-      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. The load current flows through IN+ and IN−; VBUS to the voltage to measure. Most modules have a 0.1 Ω shunt (up to 0.8 A).",
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. The load current flows through IN+ and IN−; VBUS to the voltage to measure. Most modules have a 0.1 Ω shunt (up to 0.8 A). To count battery charge, put the shunt between battery and the rest of the board: IN+ (V+) to the board and charger, IN− (V−) to the battery +. Charging current then reads positive.",
       "libs": [
         "INA226"
       ],
@@ -2030,9 +2066,24 @@
             "POWER",
             "SOLAR_POWER"
           ]
+        },
+        {
+          "q": "pct",
+          "defaultType": "BATTERY_PERCENTAGE",
+          "typeOptions": [
+            "BATTERY_PERCENTAGE"
+          ],
+          "minFirmware": "0.8.0"
         }
       ],
-      "options": [],
+      "options": [
+        {
+          "key": "battery",
+          "label": "Count battery charge (needs the capacity)",
+          "type": "bool",
+          "default": false
+        }
+      ],
       "bootMs": 0,
       "powerUpMs": 0,
       "waitMs": 0,
@@ -2040,12 +2091,194 @@
       "sleepUa": 0.5,
       "activeMa": 1.1,
       "sleep": [],
-      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. The load current flows through V+ and V−, the shunt is built in.",
+      "wiring": "VIN to 3.3 V, GND, SDA and SCL to the I²C bus. The load current flows through V+ and V−, the shunt is built in. To count battery charge, put the shunt between battery and the rest of the board: IN+ (V+) to the board and charger, IN− (V−) to the battery +. Charging current then reads positive.",
       "libs": [
         "Adafruit INA260 Library",
         "Adafruit BusIO"
       ],
       "esphome": "ina260"
+    },
+    {
+      "id": "max1704x",
+      "name": "MAX17048 fuel gauge",
+      "summary": "Battery voltage, level and charge rate (MAX17043/48/49, I²C)",
+      "kind": "gauge",
+      "category": "power",
+      "bus": "i2c",
+      "addresses": [
+        54
+      ],
+      "defaultAddress": 54,
+      "channels": [
+        {
+          "q": "v",
+          "defaultType": "BATTERY_VOLTAGE",
+          "typeOptions": [
+            "BATTERY_VOLTAGE"
+          ]
+        },
+        {
+          "q": "pct",
+          "defaultType": "BATTERY_PERCENTAGE",
+          "typeOptions": [
+            "BATTERY_PERCENTAGE"
+          ]
+        },
+        {
+          "q": "crate",
+          "defaultType": "BATTERY_CHARGE_RATE",
+          "typeOptions": [
+            "BATTERY_CHARGE_RATE"
+          ]
+        }
+      ],
+      "options": [
+        {
+          "key": "chip",
+          "label": "Chip",
+          "type": "enum",
+          "values": [
+            "MAX17048",
+            "MAX17049",
+            "MAX17043"
+          ],
+          "default": "MAX17048"
+        }
+      ],
+      "minFirmware": "0.8.0",
+      "bootMs": 10,
+      "powerUpMs": 0,
+      "waitMs": 0,
+      "readMs": 2,
+      "sleepUa": 4,
+      "activeMa": 0.023,
+      "sleep": [
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "when": {
+            "$powerPin": true
+          },
+          "note": "wire it to the battery, not to the switched sensor supply: switched off it forgets the charge and starts over."
+        }
+      ],
+      "wiring": "VCC/BAT to the battery +, GND, SDA and SCL to the I²C bus (address 0x36). The chip measures the cell it sits on and needs no capacity. MAX17049 is for two cells in series; MAX17043 sends no charge rate.",
+      "libs": [],
+      "esphome": "max17043"
+    },
+    {
+      "id": "lc709203f",
+      "name": "LC709203F fuel gauge",
+      "summary": "Battery voltage and level (I²C)",
+      "kind": "gauge",
+      "category": "power",
+      "bus": "i2c",
+      "addresses": [
+        11
+      ],
+      "defaultAddress": 11,
+      "channels": [
+        {
+          "q": "v",
+          "defaultType": "BATTERY_VOLTAGE",
+          "typeOptions": [
+            "BATTERY_VOLTAGE"
+          ]
+        },
+        {
+          "q": "pct",
+          "defaultType": "BATTERY_PERCENTAGE",
+          "typeOptions": [
+            "BATTERY_PERCENTAGE"
+          ]
+        }
+      ],
+      "options": [],
+      "minFirmware": "0.8.0",
+      "bootMs": 10,
+      "powerUpMs": 0,
+      "waitMs": 0,
+      "readMs": 2,
+      "sleepUa": 15,
+      "activeMa": 0.015,
+      "sleep": [
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "when": {
+            "$powerPin": true
+          },
+          "note": "wire it to the battery, not to the switched sensor supply: switched off it forgets the charge and starts over."
+        }
+      ],
+      "wiring": "VBAT/BAT+ to the battery, GND, SDA and SCL to the I²C bus (address 0x0B). Set the battery capacity in the power step: the chip needs it (pack size) and the chemistry (LiPo or Li-ion profile). One cell only.",
+      "libs": [],
+      "esphome": "lc709203f"
+    },
+    {
+      "id": "bq27441",
+      "name": "BQ27441 fuel gauge",
+      "summary": "Battery voltage, level and current (I²C)",
+      "kind": "gauge",
+      "category": "power",
+      "bus": "i2c",
+      "addresses": [
+        85
+      ],
+      "defaultAddress": 85,
+      "channels": [
+        {
+          "q": "v",
+          "defaultType": "BATTERY_VOLTAGE",
+          "typeOptions": [
+            "BATTERY_VOLTAGE"
+          ]
+        },
+        {
+          "q": "pct",
+          "defaultType": "BATTERY_PERCENTAGE",
+          "typeOptions": [
+            "BATTERY_PERCENTAGE"
+          ]
+        },
+        {
+          "q": "i",
+          "defaultType": "BATTERY_CURRENT",
+          "typeOptions": [
+            "BATTERY_CURRENT"
+          ]
+        }
+      ],
+      "options": [],
+      "minFirmware": "0.8.0",
+      "bootMs": 10,
+      "powerUpMs": 0,
+      "waitMs": 0,
+      "readMs": 3,
+      "sleepUa": 9,
+      "activeMa": 0.05,
+      "sleep": [
+        {
+          "modes": [
+            "LIGHT_SLEEP",
+            "DEEP_SLEEP",
+            "HIBERNATE"
+          ],
+          "when": {
+            "$powerPin": true
+          },
+          "note": "wire it to the battery, not to the switched sensor supply: switched off it forgets the charge and starts over."
+        }
+      ],
+      "wiring": "BAT+ and BAT− across the battery, the load on the gauge's output side, SDA and SCL to the I²C bus (address 0x55). Set the battery capacity in the power step: the board writes it into the chip once (design capacity). One cell only.",
+      "libs": [],
+      "esphome": ""
     },
     {
       "id": "ads1115",

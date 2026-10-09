@@ -209,7 +209,11 @@ for (const d of drivers.drivers) {
   driverIds.add(d.id);
   if (!firmwareIds.has(d.id)) fail(`driver ${d.id}: the firmware does not know this id`);
   if (!['onewire', 'gpio', 'i2c', 'analog', 'none'].includes(d.bus)) fail(`driver ${d.id}: unknown bus ${d.bus}`);
-  if (!['sensor', 'output', 'input', undefined].includes(d.kind)) fail(`driver ${d.id}: unknown kind ${d.kind}`);
+  // gauge (0.8.0): measures the battery the thresholds watch; the builder offers it in the power step.
+  if (!['sensor', 'output', 'input', 'gauge', undefined].includes(d.kind)) fail(`driver ${d.id}: unknown kind ${d.kind}`);
+  if (d.kind === 'gauge' && (d.bus !== 'i2c' || !d.channels.some((c) => c.defaultType === 'BATTERY_VOLTAGE'))) {
+    fail(`driver ${d.id}: a gauge sits on I²C and measures BATTERY_VOLTAGE`);
+  }
   if (d.bus === 'i2c') {
     if (!d.addresses?.length || !d.addresses.includes(d.defaultAddress)) fail(`driver ${d.id}: i2c needs addresses incl. defaultAddress`);
   } else if (d.bus !== 'none' && !d.pins?.length) {
@@ -240,6 +244,8 @@ for (const d of drivers.drivers) {
     qs.add(ch.q);
     if (!TYPE_RE.test(ch.defaultType)) fail(`driver ${d.id}: invalid default type ${ch.defaultType}`);
     for (const t of ch.typeOptions) if (t !== '*' && !TYPE_RE.test(t)) fail(`driver ${d.id}: invalid type option ${t}`);
+    // A value newer than its part (an INA's battery level): only sent by that firmware or newer.
+    checkMinFirmware(`driver ${d.id}: channel ${ch.q}`, ch.minFirmware);
   }
   for (const name of d.libs) if (!libByName.has(name)) fail(`driver ${d.id}: library ${name} missing in libraries.json`);
   // Sampling every second needs a running CPU; such a sensor can never be sleep safe.

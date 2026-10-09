@@ -50,6 +50,7 @@
 #endif
 
 #include "Driver.h"
+#include "power/Battery.h"
 #include "power/Power.h"
 #include "power/Schedule.h"
 #include "status/Status.h"
@@ -850,6 +851,203 @@ private:
     float lux_ = -1;
 };
 
+// --- battery: INA charge counting and fuel gauges (firmware 0.8.0) ------------------------------
+
+// An INA with "battery" on counts the charge between rounds (coulomb counting) and sends it as
+// percent of the capacity in the battery block. One battery per board: the count lives in RTC
+// memory next to the battery guard. Positive current charges the battery.
+float chargePercent(const DriverContext& ctx, float volts, float amps, bool ok) {
+    const BatteryConfig* b = ctx.battery;
+    if (!ok || !b || b->capacityMah == 0 || !isfinite(volts)) return NAN;
+    power::BatteryState& s = power::batteryState();
+    uint32_t now = uint32_t(power::clockMs() / 1000);
+    uint32_t seconds = isnan(s.chargeMah) ? 0 : now - s.chargeAtS;
+    float mv = volts * 1000.0f;
+    s.chargeMah = battery::countCharge(s.chargeMah, amps, seconds, uint16_t(mv < 0 ? 0 : mv > 65000 ? 65000 : mv),
+                                       b->capacityMah, b->cells, b->chemistry);
+    s.chargeAtS = now;
+    power::saveBattery();
+    return isnan(s.chargeMah) ? NAN : s.chargeMah / float(b->capacityMah) * 100.0f;
+}
+
+bool readRegs(TwoWire* bus, uint8_t address, uint8_t reg, uint8_t* out, uint8_t n) {
+    bus->beginTransmission(address);
+    bus->write(reg);
+    if (bus->endTransmission(false) != 0) return false;
+    if (bus->requestFrom(int(address), int(n)) != n) return false;
+    for (uint8_t i = 0; i < n; i++) out[i] = uint8_t(bus->read());
+    return true;
+}
+
+bool writeRegs(TwoWire* bus, uint8_t address, uint8_t reg, const uint8_t* data, uint8_t n) {
+    bus->beginTransmission(address);
+    bus->write(reg);
+    for (uint8_t i = 0; i < n; i++) bus->write(data[i]);
+    return bus->endTransmission() == 0;
+}
+
+// MAX17043/MAX17048/MAX17049 (0x36): voltage, state of charge and (48/49) charge rate. The chip
+// keeps its model while the battery is connected and hibernates by itself when the current is low.
+class Max1704xGauge : public Driver {
+public:
+    Max1704xGauge(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus)
+        : Driver(cfg, ctx), bus_(bus), chip_(battery::max1704xChip(cfg.text("chip", "MAX17048"))) {}
+
+    bool begin(bool) override {
+        uint8_t version[2];
+        ok_ = readRegs(bus_, cfg_.address, 0x08, version, 2);
+        if (!ok_) setProblem(problem::kMissing);
+        return ok_;
+    }
+
+    void read(Reading* out) override {
+        uint8_t vcell[2] = {}, soc[2] = {}, crate[2] = {};
+        bool ok = ok_ && readRegs(bus_, cfg_.address, 0x02, vcell, 2) && readRegs(bus_, cfg_.address, 0x04, soc, 2);
+        if (ok_ && !ok) setProblem(problem::kMissing);
+        bool rate = ok && chip_ != battery::Max1704x::Max17043 && readRegs(bus_, cfg_.address, 0x16, crate, 2);
+        fill(out, "v", battery::max1704xPackMv(uint16_t(vcell[0] << 8 | vcell[1]), chip_) / 1000.0f, ok);
+        float pct = battery::max1704xPercent(uint16_t(soc[0] << 8 | soc[1]));
+        fill(out, "pct", pct > 100.0f ? 100.0f : pct, ok);
+        fill(out, "crate", battery::max1704xRatePerHour(uint16_t(crate[0] << 8 | crate[1])), rate);
+    }
+
+private:
+    TwoWire* bus_;
+    battery::Max1704x chip_;
+    bool ok_ = false;
+};
+
+// LC709203F (0x0B): voltage and state of charge. Every transfer carries a CRC-8. The pack size
+// (APA) comes from the capacity, the profile from the chemistry of the battery block; both are
+// written only when the chip holds other values.
+class Lc709203fGauge : public Driver {
+public:
+    Lc709203fGauge(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
+
+    bool begin(bool) override {
+        ok_ = set(0x15, 0x0001);  // operational mode
+        if (ok_) {
+            set(0x16, 0x0000);  // temperature by I²C (25 °C), no thermistor
+            const BatteryConfig* b = ctx_.battery;
+            uint16_t value = 0;
+            if (b && b->capacityMah) {
+                uint16_t apa = battery::lc709203fApa(b->capacityMah);
+                if (!get(0x0B, value) || value != apa) set(0x0B, apa);
+            }
+            uint16_t profile = battery::lc709203fProfile(b ? b->chemistry : Chemistry::Unknown);
+            if (!get(0x12, value) || value != profile) set(0x12, profile);
+        } else {
+            setProblem(problem::kMissing);
+        }
+        return ok_;
+    }
+
+    void read(Reading* out) override {
+        uint16_t mv = 0, rsoc = 0;
+        bool ok = ok_ && get(0x09, mv) && get(0x0D, rsoc);
+        if (ok_ && !ok) setProblem(problem::kMissing);
+        fill(out, "v", mv / 1000.0f, ok);
+        fill(out, "pct", rsoc > 100 ? 100.0f : float(rsoc), ok);
+    }
+
+private:
+    bool get(uint8_t reg, uint16_t& value) {
+        uint8_t data[3];
+        if (!readRegs(bus_, cfg_.address, reg, data, 3)) return false;
+        uint8_t frame[5] = {uint8_t(cfg_.address << 1), reg, uint8_t((cfg_.address << 1) | 1), data[0], data[1]};
+        if (battery::crc8(frame, 5) != data[2]) return false;
+        value = uint16_t(data[0] | (data[1] << 8));
+        return true;
+    }
+
+    bool set(uint8_t reg, uint16_t value) {
+        uint8_t frame[4] = {uint8_t(cfg_.address << 1), reg, uint8_t(value & 0xFF), uint8_t(value >> 8)};
+        uint8_t data[3] = {frame[2], frame[3], battery::crc8(frame, 4)};
+        return writeRegs(bus_, cfg_.address, reg, data, 3);
+    }
+
+    TwoWire* bus_;
+    bool ok_ = false;
+};
+
+// BQ27441-G1 (0x55): voltage, state of charge and average current (positive charges). The design
+// capacity comes from the battery block; it is written once through the chip's config update
+// mode when it differs, then the chip learns the rest by itself.
+class Bq27441Gauge : public Driver {
+public:
+    Bq27441Gauge(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus) {}
+
+    bool begin(bool) override {
+        uint16_t design = 0;
+        ok_ = command(0x3C, design);
+        if (!ok_) {
+            setProblem(problem::kMissing);
+            return false;
+        }
+        const BatteryConfig* b = ctx_.battery;
+        if (b && b->capacityMah && b->capacityMah <= 32767 && design != b->capacityMah) {
+            bool done = setDesignCapacity(uint16_t(b->capacityMah));
+            status::line("%s BQ27441 design capacity %lu mAh", done ? "SET" : "WARN", (unsigned long)b->capacityMah);
+        }
+        return true;
+    }
+
+    void read(Reading* out) override {
+        uint16_t mv = 0, soc = 0, current = 0;
+        bool ok = ok_ && command(0x04, mv) && command(0x1C, soc) && command(0x10, current);
+        if (ok_ && !ok) setProblem(problem::kMissing);
+        fill(out, "v", mv / 1000.0f, ok);
+        fill(out, "pct", soc > 100 ? 100.0f : float(soc), ok);
+        fill(out, "i", int16_t(current) / 1000.0f, ok);
+    }
+
+private:
+    bool command(uint8_t reg, uint16_t& value) {
+        uint8_t data[2];
+        if (!readRegs(bus_, cfg_.address, reg, data, 2)) return false;
+        value = uint16_t(data[0] | (data[1] << 8));
+        return true;
+    }
+
+    bool control(uint16_t sub) {
+        uint8_t data[2] = {uint8_t(sub & 0xFF), uint8_t(sub >> 8)};
+        return writeRegs(bus_, cfg_.address, 0x00, data, 2);
+    }
+
+    bool writeByte(uint8_t reg, uint8_t value) { return writeRegs(bus_, cfg_.address, reg, &value, 1); }
+
+    // Flags bit 4 (CFGUPMODE) reaches `on` within a second.
+    bool waitConfigMode(bool on) {
+        for (int i = 0; i < 20; i++) {
+            uint16_t flags = 0;
+            if (command(0x06, flags) && bool(flags & 0x10) == on) return true;
+            delay(50);
+        }
+        return false;
+    }
+
+    // TI SLUUAC9: unseal, SET_CFGUPDATE, block 0 of class 82 (State), Design Capacity at
+    // offset 10 (big endian), new block checksum, SOFT_RESET, seal again.
+    bool setDesignCapacity(uint16_t mah) {
+        if (!control(0x8000) || !control(0x8000) || !control(0x0013) || !waitConfigMode(true)) return false;
+        bool ok = writeByte(0x61, 0x00) && writeByte(0x3E, 82) && writeByte(0x3F, 0);
+        delay(5);
+        uint8_t sum = 0, old[2] = {};
+        ok = ok && readRegs(bus_, cfg_.address, 0x60, &sum, 1) && readRegs(bus_, cfg_.address, 0x4A, old, 2);
+        uint8_t next[2] = {uint8_t(mah >> 8), uint8_t(mah & 0xFF)};
+        uint8_t temp = uint8_t(255 - sum - old[0] - old[1]);
+        uint8_t newSum = uint8_t(255 - uint8_t(temp + next[0] + next[1]));
+        ok = ok && writeRegs(bus_, cfg_.address, 0x4A, next, 2) && writeByte(0x60, newSum);
+        control(0x0042);  // SOFT_RESET leaves config update mode
+        ok = waitConfigMode(false) && ok;
+        control(0x0020);  // SEAL
+        return ok;
+    }
+
+    TwoWire* bus_;
+    bool ok_ = false;
+};
+
 class Ina219 : public Driver {
 public:
     Ina219(const DeviceConfig& cfg, const DriverContext& ctx, TwoWire* bus) : Driver(cfg, ctx), bus_(bus), ina_(cfg.address) {}
@@ -875,6 +1073,7 @@ public:
         fill(out, "v", volts, here);
         fill(out, "i", ina_.getCurrent_mA() / 1000.0f, here);
         fill(out, "w", ina_.getPower_mW() / 1000.0f, here);
+        if (sends("pct")) fill(out, "pct", chargePercent(ctx_, volts, ina_.getCurrent_mA() / 1000.0f, here), here);
         if (here) ina_.powerSave(true);
     }
 
@@ -1521,6 +1720,7 @@ public:
         fill(out, "v", ina_.getBusVoltage(), ok);
         fill(out, "i", ina_.getCurrent(), ok);
         fill(out, "w", ina_.getPower(), ok);
+        if (sends("pct")) fill(out, "pct", chargePercent(ctx_, ina_.getBusVoltage(), ina_.getCurrent(), ok), ok);
         if (ok_) ina_.shutDown();
     }
 
@@ -1551,6 +1751,9 @@ public:
         fill(out, "v", ina_.readBusVoltage() / 1000.0f, ok);
         fill(out, "i", ina_.readCurrent() / 1000.0f, ok);
         fill(out, "w", ina_.readPower() / 1000.0f, ok);
+        if (sends("pct")) {
+            fill(out, "pct", chargePercent(ctx_, ina_.readBusVoltage() / 1000.0f, ina_.readCurrent() / 1000.0f, ok), ok);
+        }
     }
 
 private:
@@ -1927,6 +2130,9 @@ Driver* createDriver(const DeviceConfig& cfg, TwoWire* buses[kMaxI2cBuses], cons
     if (strcmp(id, "ina260") == 0) return new Ina260(cfg, ctx, bus);
     if (strcmp(id, "ads1115") == 0) return new Ads1115(cfg, ctx, bus);
     if (strcmp(id, "vl53l0x") == 0) return new Vl53l0x(cfg, ctx, bus);
+    if (strcmp(id, "max1704x") == 0) return new Max1704xGauge(cfg, ctx, bus);
+    if (strcmp(id, "lc709203f") == 0) return new Lc709203fGauge(cfg, ctx, bus);
+    if (strcmp(id, "bq27441") == 0) return new Bq27441Gauge(cfg, ctx, bus);
     return nullptr;
 }
 

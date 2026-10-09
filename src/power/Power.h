@@ -79,6 +79,24 @@ ReportState& report();
 void loadReport(bool fresh);
 void saveReport();
 
+// Battery thresholds (firmware 0.8.0): the guard's memory, a clock that counts deep sleep, and the
+// charge counter of an INA with "battery" on. RTC memory like the rounds; with thresholds running
+// a hibernate keeps that memory powered (a few µA), else the guard would forget where it was.
+struct BatteryState {
+    uint8_t guard[16];   // HydroNodeBatteryGuard::Memory, opaque here
+    uint64_t clockMs;    // clockMs() when the board went to sleep, plus the sleep
+    float chargeMah;     // INA charge counter, NAN = not started
+    uint32_t chargeAtS;  // clockMs() / 1000 of the last count
+};
+static_assert(sizeof(BatteryState) == 32, "BatteryState fills 8 RTC words");
+BatteryState& batteryState();
+void loadBattery(bool fresh);
+void saveBattery();
+
+// Milliseconds since the last reset, deep sleep included (a pin that cuts a sleep short makes it
+// run a little ahead). Only differences count: the guard's 60 s, the charge counter's hours.
+uint64_t clockMs();
+
 // ESP8266 only: its deep sleep lasts at most ~3.5 h. Longer intervals are chained, and the
 // intermediate wake-ups go straight back to sleep with the radio off. Call first thing in setup();
 // returns only when this wake-up is meant to measure. No-op on the ESP32 family.
