@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include <ArduinoJson.h>
+
 #include "config/Config.h"
 
 using namespace hn;
@@ -227,6 +229,102 @@ void test_type_rule_matches_backend() {
     TEST_ASSERT_FALSE(isValidType((longest + "A").c_str()));
 }
 
+// Firmware 0.8.0: the battery block, pinned like config-v1 (catalog/fixtures/config-v1-battery.*).
+void test_battery_fixture_parses() {
+    auto data = readFile("catalog/fixtures/config-v1-battery.bin");
+    TEST_ASSERT_TRUE_MESSAGE(!data.empty(), "fixture missing, run pio test from the project root");
+    TEST_ASSERT_TRUE(data.size() <= kHeaderSize + kMaxPayload);
+    ParseResult r = parseBlock(data.data(), data.size(), cfg);
+    TEST_ASSERT_EQUAL_STRING("", r.detail);
+    TEST_ASSERT_EQUAL(ConfigError::Ok, r.error);
+    const BatteryConfig& b = cfg.battery;
+    TEST_ASSERT_TRUE(b.present);
+    TEST_ASSERT_EQUAL(PowerSource::Solar, b.source);
+    TEST_ASSERT_EQUAL(Chemistry::LiPo, b.chemistry);
+    TEST_ASSERT_EQUAL(1, b.cells);
+    TEST_ASSERT_EQUAL(2000, b.capacityMah);
+    TEST_ASSERT_TRUE(b.thresholds);
+    TEST_ASSERT_EQUAL(3500, b.saveMv);
+    TEST_ASSERT_EQUAL(3300, b.recoveryMv);
+    TEST_ASSERT_EQUAL(3200, b.standbyMv);
+    TEST_ASSERT_EQUAL(3600, b.resumeMv);
+    TEST_ASSERT_EQUAL(7, b.rev);
+    TEST_ASSERT_EQUAL(0, b.restUa);  // only with INA charge counting
+    TEST_ASSERT_EQUAL_STRING("max1704x", cfg.devices[1].driver);
+    TEST_ASSERT_EQUAL(4, cfg.devices[1].channels[2].every);
+}
+
+void test_battery_block_defaults_and_errors() {
+    TEST_ASSERT_EQUAL(ConfigError::Ok, parse(kMinimal, cfg));
+    TEST_ASSERT_FALSE(cfg.battery.present);
+    TEST_ASSERT_EQUAL(PowerSource::Usb, cfg.battery.source);
+    TEST_ASSERT_EQUAL(1, cfg.battery.cells);
+
+    std::string usb = replace(kMinimal, "\"interval\":60", "\"interval\":60,\"battery\":{\"src\":\"usb\"}");
+    TEST_ASSERT_EQUAL(ConfigError::Ok, parse(usb, cfg));
+    TEST_ASSERT_TRUE(cfg.battery.present);
+    TEST_ASSERT_FALSE(cfg.battery.thresholds);
+
+    // Defaults: battery source, one cell, no revision.
+    std::string bare = replace(kMinimal, "\"interval\":60", "\"interval\":60,\"battery\":{}");
+    TEST_ASSERT_EQUAL(ConfigError::Ok, parse(bare, cfg));
+    TEST_ASSERT_EQUAL(PowerSource::Battery, cfg.battery.source);
+    TEST_ASSERT_EQUAL(0, cfg.battery.rev);
+
+    auto with = [](const char* block) {
+        return replace(kMinimal, "\"interval\":60", std::string("\"interval\":60,\"battery\":") + block);
+    };
+    TEST_ASSERT_EQUAL(ConfigError::BadValue, parse(with(R"({"src":"mains"})"), cfg));
+    TEST_ASSERT_EQUAL(ConfigError::BadValue, parse(with(R"({"chem":"lead"})"), cfg));
+    TEST_ASSERT_EQUAL(ConfigError::BadValue, parse(with(R"({"cells":0})"), cfg));
+    TEST_ASSERT_EQUAL(ConfigError::BadValue, parse(with(R"({"cells":17})"), cfg));
+    TEST_ASSERT_EQUAL(ConfigError::BadValue, parse(with(R"({"mah":0})"), cfg));
+    TEST_ASSERT_EQUAL(ConfigError::MissingField, parse(with(R"({"save":3500,"rec":3300})"), cfg));
+    // Rest current for INA charge counting, µA.
+    TEST_ASSERT_EQUAL(ConfigError::Ok, parse(with(R"({"rev":2,"slp":42})"), cfg));
+    TEST_ASSERT_EQUAL(42, cfg.battery.restUa);
+    TEST_ASSERT_EQUAL(ConfigError::BadValue, parse(with(R"({"slp":-1})"), cfg));
+    TEST_ASSERT_EQUAL(ConfigError::BadValue, parse(with(R"({"slp":2000000})"), cfg));
+    ParseResult r = makeResult(ConfigError::Ok, "");
+    auto b = block(with(R"({"save":3500,"rec":3300,"sby":3251,"res":3600})"));
+    r = parseBlock(b.data(), b.size(), cfg);
+    TEST_ASSERT_EQUAL(ConfigError::BadValue, r.error);
+    TEST_ASSERT_EQUAL_STRING("battery.sby", r.detail);
+    // 2S LiFePO4 preset.
+    TEST_ASSERT_EQUAL(ConfigError::Ok, parse(with(R"({"chem":"lifepo4","cells":2,"save":6200,"rec":6000,"sby":5600,"res":6400})"), cfg));
+    // Custom chemistry: only the gaps.
+    TEST_ASSERT_EQUAL(ConfigError::Ok, parse(with(R"({"chem":"custom","save":2400,"rec":2300,"sby":2200,"res":2450})"), cfg));
+}
+
+// The rule table backend, web, library, station and firmware share (test/vectors/, a copy of
+// hydronode-backend/src/test/resources/devicesettings/threshold-rules-vectors.json).
+void test_threshold_rules_match_the_shared_table() {
+    auto data = readFile("test/vectors/threshold-rules-vectors.json");
+    TEST_ASSERT_TRUE_MESSAGE(!data.empty(), "vectors missing, run pio test from the project root");
+    JsonDocument doc;
+    TEST_ASSERT_FALSE(deserializeJson(doc, data.data(), data.size()));
+    int checked = 0;
+    for (JsonObjectConst c : doc["cases"].as<JsonArrayConst>()) {
+        const char* chem = c["chemistry"] | "";
+        Chemistry chemistry = strcmp(chem, "LI_ION") == 0 ? Chemistry::LiIon
+                              : strcmp(chem, "LIFEPO4") == 0 ? Chemistry::LiFePO4
+                              : strcmp(chem, "LIPO") == 0 ? Chemistry::LiPo
+                                                          : Chemistry::Unknown;
+        uint8_t broken = checkThresholds(c["save"], c["recovery"], c["standby"], c["resume"], c["cells"], chemistry);
+        uint8_t expected = 0;
+        for (const char* field : c["expected"].as<JsonArrayConst>()) {
+            if (strcmp(field, "save") == 0) expected |= 1;
+            if (strcmp(field, "recovery") == 0) expected |= 2;
+            if (strcmp(field, "standby") == 0) expected |= 4;
+            if (strcmp(field, "resume") == 0) expected |= 8;
+        }
+        TEST_ASSERT_EQUAL_HEX8_MESSAGE(expected, broken, c["name"].as<const char*>());
+        checked++;
+    }
+    TEST_ASSERT_EQUAL(16, checked);
+}
+
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_crc32_matches_zlib);
@@ -239,5 +337,8 @@ int main() {
     RUN_TEST(test_channels_share_one_pool);
     RUN_TEST(test_every_and_outputs);
     RUN_TEST(test_type_rule_matches_backend);
+    RUN_TEST(test_battery_fixture_parses);
+    RUN_TEST(test_battery_block_defaults_and_errors);
+    RUN_TEST(test_threshold_rules_match_the_shared_table);
     return UNITY_END();
 }

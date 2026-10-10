@@ -13,6 +13,7 @@
 #include <driver/rtc_io.h>
 #endif
 
+#include "power/Battery.h"
 #include "status/Status.h"
 
 namespace hn::power {
@@ -126,6 +127,13 @@ RTC_DATA_ATTR Rounds savedRounds = {0, 0};
 RTC_DATA_ATTR uint32_t reportMagic = 0;
 RTC_DATA_ATTR ReportState savedReport = {};
 RTC_DATA_ATTR int64_t nextRoundUs = 0;
+constexpr uint32_t kBatteryMagic = 0x484E4241;  // "HNBA"
+RTC_DATA_ATTR uint32_t batteryMagic = 0;
+RTC_DATA_ATTR BatteryState savedBattery = {};
+RTC_DATA_ATTR int64_t batterySleptAtUs = 0;  // system time when the last deep sleep began
+RTC_DATA_ATTR uint32_t batterySleepMs = 0;   // planned length of that sleep, 0 = counted
+RTC_DATA_ATTR uint32_t sleptSinceCountMs = 0;  // light and deep sleep since takeSleptMs()
+uint64_t bootClockMs = 0;  // savedBattery.clockMs at boot, plus the sleep that really passed
 
 int64_t nowUs() {
     struct timeval tv;
@@ -233,7 +241,10 @@ void lightSleep(const Config& cfg, uint32_t ms, const WakeInput* inputs, uint8_t
     esp_sleep_enable_timer_wakeup(uint64_t(ms) * 1000ULL);
     armLight(inputs, count);
     holdLevels(true);
+    int64_t before = nowUs();
     esp_light_sleep_start();
+    int64_t slept = (nowUs() - before) / 1000;
+    if (slept > 0) sleptSinceCountMs += uint32_t(slept);
     holdLevels(false);
     disarmLight(inputs, count);
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
@@ -245,6 +256,11 @@ void deepSleep(const Config& cfg, uint32_t ms, const WakeInput* inputs, uint8_t 
                  (unsigned long)(ms % 1000 / 10));
     status::flush();
     setNextRound(ms);
+    // The sleep itself is added at wake-up (loadBattery): a pin may end it early.
+    savedBattery.clockMs = clockMs();
+    batterySleptAtUs = nowUs();
+    batterySleepMs = ms;
+    saveBattery();
     esp_sleep_enable_timer_wakeup(uint64_t(ms) * 1000ULL);
     if (hibernate) {
         // Power down what the timer does not need. Held pins (sensor supply, fan SET) need the RTC
@@ -252,12 +268,16 @@ void deepSleep(const Config& cfg, uint32_t ms, const WakeInput* inputs, uint8_t 
 #if SOC_PM_SUPPORT_RTC_PERIPH_PD
         if (keptCount == 0) esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
 #endif
+        // Battery thresholds keep the guard's memory: without it a wake-up between Save and
+        // Resume would count as a fresh start and wait in Recovery.
+        if (!battery::guards(cfg)) {
 #if SOC_PM_SUPPORT_RTC_SLOW_MEM_PD
-        esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
+            esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
 #endif
 #if SOC_PM_SUPPORT_RTC_FAST_MEM_PD
-        esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
+            esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
 #endif
+        }
     } else {
         armDeep(inputs, count);
     }
@@ -295,6 +315,35 @@ void loadReport(bool fresh) {
 void saveReport() { reportMagic = kReportMagic; }
 
 void resumeLongSleep(const Config&) {}
+
+BatteryState& batteryState() { return savedBattery; }
+
+void loadBattery(bool fresh) {
+    if (fresh || batteryMagic != kBatteryMagic) {
+        savedBattery = {};
+        savedBattery.chargeMah = NAN;
+        batteryMagic = kBatteryMagic;
+        batterySleepMs = 0;
+        sleptSinceCountMs = 0;
+    }
+    bootClockMs = savedBattery.clockMs;
+    if (batterySleepMs) {
+        uint32_t slept = battery::sleptMs(batterySleptAtUs, nowUs(), millis(), batterySleepMs);
+        bootClockMs += slept;
+        sleptSinceCountMs += slept;
+        batterySleepMs = 0;
+    }
+}
+
+uint32_t takeSleptMs() {
+    uint32_t ms = sleptSinceCountMs;
+    sleptSinceCountMs = 0;
+    return ms;
+}
+
+void saveBattery() { batteryMagic = kBatteryMagic; }
+
+uint64_t clockMs() { return bootClockMs + millis(); }
 
 }  // namespace hn::power
 

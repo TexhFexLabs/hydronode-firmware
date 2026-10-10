@@ -121,3 +121,74 @@ X-Device-Report: awake=4120;nap=9800;wifi=2300;wakes=3;wfail=2:AUTH;sens=scd4x:m
 | `sens` | devices with a due value that did not arrive: `missing` (no answer at start-up), `timeout` (no measurement in time), `range` (outside the measuring range), `warming` (still settling) |
 
 Reset reasons (brownout, watchdog, panic) stay in `X-Device-Status`.
+
+## Battery, gauges and thresholds (0.8.0)
+
+A config may carry a `battery` block. Without it, or with `"src": "usb"`, the board runs as before
+and reports `src=usb` with its interval.
+
+```json
+"battery": { "src": "solar", "chem": "lipo", "cells": 1, "mah": 2000,
+             "save": 3500, "rec": 3300, "sby": 3200, "res": 3600, "rev": 7 }
+```
+
+`src` is `usb`, `bat` or `solar`, `chem` `lipo`, `li_ion`, `lifepo4` or `custom`, thresholds are pack
+millivolts (volts per cell × cells), all four or none. `rev` is the settings revision the backend
+wrote; the board reports it back. `slp` (optional, after `rev`) is the current between rounds in
+µA, only with INA charge counting (see Gauges). The parser checks the same rules as backend, web, library and
+station (`test/vectors/threshold-rules-vectors.json`):
+
+- Standby + 50 ≤ Recovery, Recovery + 50 ≤ Save, Recovery + 100 ≤ Resume ≤ Save + 400 (pack mV)
+- each value inside the chemistry's per cell range: LiPo and Li-ion 2.80 to 4.10 V, LiFePO4 2.50 to
+  3.40 V, none given counts as LiPo, `custom` checks the gaps only
+
+### What the board does
+
+The thresholds watch the first value of type `BATTERY_VOLTAGE` (ADC divider `battery`, a gauge,
+an INA). That device is read every round, even when its own value goes out every n-th round only.
+The state machine is `HydroNodeBatteryGuard` from HydroNode-Library 1.8.0, the class a sketch uses
+too:
+
+| State | Enters | Leaves | The board |
+|---|---|---|---|
+| NORMAL | | | runs as configured |
+| SAVE | below Save | at Save + 150 mV | twice the interval, values sent every n-th round (n > 1) every 2n-th, gas and dust sensors (SGP30/40/41, PMS5003, PMSA003I, SEN5x) rest |
+| RECOVERY | below Recovery, or 3 invalid readings | 2 valid readings at Resume or more, 60 s apart | one last round with `pwr=recovery`, outputs off, then deep sleep for the interval with WiFi off, reading only the battery |
+| STANDBY | 2 valid readings below Standby in Recovery | a valid reading at Resume, then as Recovery | deep sleep for an hour, only the battery |
+
+An invalid reading never leads to Standby. After a reset the first reading decides like a station
+boot: at Resume or more the board runs, below it waits in Recovery. Outputs switch off without
+forgetting their state: once the battery recovered they come back as they were. The guard's
+memory, a clock that counts deep sleep and the INA charge counter live in RTC memory
+(`power::BatteryState`; ESP8266 RTC slots 24 to 35). On the ESP32 the clock adds the time a deep
+sleep really lasted (the system time keeps running), so a rain pulse or a button that ends the sleep
+early does not move it ahead. With thresholds running a hibernate keeps that
+memory powered. An ESP8266 sleeps deep in Recovery only when its config uses deep sleep (GPIO16
+wired to RST); otherwise it naps in light sleep with the radio off.
+
+Thresholds without a `BATTERY_VOLTAGE` value are not applied; the board reports
+`err=no_measurement` and prints `WARN BATTERY`.
+
+### Gauges
+
+| Driver | Chip | Values | Needs |
+|---|---|---|---|
+| `max1704x` | MAX17043, MAX17048, MAX17049 (option `chip`, 0x36) | voltage, level, charge rate (not 43) | nothing, keeps its model while the battery is connected |
+| `lc709203f` | LC709203F (0x0B) | voltage, level | capacity (pack size, APA from the data sheet table) and chemistry (profile: Li-ion 1, else 0), written only when the chip holds other values. Every transfer carries a CRC-8 |
+| `bq27441` | BQ27441-G1 (0x55) | voltage, level, current | capacity up to 32767 mAh (signed 16 bit), written once as design capacity through the chip's config update mode when it differs. Larger values print `WARN BQ27441` and keep the chip's own; builder and server refuse them |
+| `ina219`, `ina226`, `ina260` | option `battery` adds the value `pct` | level by counting charge | capacity. Positive current charges (IN+ to the board, IN− to the battery). A full battery (4.15 V per cell, LiFePO4 3.55 V, nothing flowing out) resets the count to 100 %, an unknown start begins from the voltage. The INA only measures while the board is awake: its current counts the time awake, the battery block's `slp` (µA between rounds, board and sensors at rest, worked out by the builder from the catalog) counts the time asleep |
+
+All are register drivers in `src/drivers/Drivers.cpp`, no extra library. Gauges carry `kind: gauge`
+and `minFirmware: 0.8.0` in the catalog, the INA level `minFirmware` on its channel. A gauge on the
+switched sensor supply forgets its charge model; the catalog's sleep rules say so.
+
+### What the board reports
+
+The first request after every boot carries `X-Device-Config` (HydroNode-Library 1.8.0):
+
+```
+X-Device-Config: v=1 rev=7 int=300 save=3500 rec=3300 sby=3200 res=3600 src=solar gauge=max17048 cells=1 mah=2000 pwr=normal
+```
+
+and every request `pwr=` in `X-Device-Status`. Changes arrive as a config update over the air with
+a new `battery` block; the firmware never takes the library's `settings` answer key.

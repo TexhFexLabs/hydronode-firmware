@@ -66,7 +66,112 @@ bool validPin(JsonVariantConst v, int8_t& out) {
     return true;
 }
 
+bool parseSource(const char* s, PowerSource& out) {
+    if (strcmp(s, "usb") == 0) out = PowerSource::Usb;
+    else if (strcmp(s, "bat") == 0) out = PowerSource::Battery;
+    else if (strcmp(s, "solar") == 0) out = PowerSource::Solar;
+    else return false;
+    return true;
+}
+
+bool parseChemistry(const char* s, Chemistry& out) {
+    if (strcmp(s, "lipo") == 0) out = Chemistry::LiPo;
+    else if (strcmp(s, "li_ion") == 0) out = Chemistry::LiIon;
+    else if (strcmp(s, "lifepo4") == 0) out = Chemistry::LiFePO4;
+    else if (strcmp(s, "custom") == 0) out = Chemistry::Custom;
+    else return false;
+    return true;
+}
+
+bool millivolts(JsonVariantConst v, uint16_t& out) {
+    if (!v.is<uint32_t>()) return false;
+    uint32_t mv = v.as<uint32_t>();
+    if (mv < 1000 || mv > 65000) return false;
+    out = uint16_t(mv);
+    return true;
+}
+
+ParseResult parseBattery(JsonObjectConst b, BatteryConfig& out) {
+    out = {};
+    out.cells = 1;
+    out.source = PowerSource::Usb;
+    if (b.isNull()) return ok();
+    out.present = true;
+    if (!parseSource(b["src"] | "bat", out.source)) return fail(ConfigError::BadValue, "battery.src");
+    if (!b["chem"].isNull() && (!b["chem"].is<const char*>() || !parseChemistry(b["chem"].as<const char*>(), out.chemistry))) {
+        return fail(ConfigError::BadValue, "battery.chem");
+    }
+    uint32_t cells = b["cells"] | 1u;
+    if (cells < 1 || cells > kMaxCells) return fail(ConfigError::BadValue, "battery.cells");
+    out.cells = uint8_t(cells);
+    if (!b["mah"].isNull()) {
+        if (!b["mah"].is<uint32_t>() || b["mah"].as<uint32_t>() == 0 || b["mah"].as<uint32_t>() > kMaxCapacityMah) {
+            return fail(ConfigError::BadValue, "battery.mah");
+        }
+        out.capacityMah = b["mah"].as<uint32_t>();
+    }
+    if (!b["slp"].isNull()) {
+        if (!b["slp"].is<uint32_t>() || b["slp"].as<uint32_t>() > 1000000) return fail(ConfigError::BadValue, "battery.slp");
+        out.restUa = b["slp"].as<uint32_t>();
+    }
+    if (!b["rev"].isNull()) {
+        if (!b["rev"].is<uint32_t>()) return fail(ConfigError::BadValue, "battery.rev");
+        out.rev = b["rev"].as<uint32_t>();
+    }
+    const char* keys[] = {"save", "rec", "sby", "res"};
+    uint16_t* values[] = {&out.saveMv, &out.recoveryMv, &out.standbyMv, &out.resumeMv};
+    uint8_t given = 0;
+    for (uint8_t i = 0; i < 4; i++) {
+        if (b[keys[i]].isNull()) continue;
+        if (!millivolts(b[keys[i]], *values[i])) {
+            static const char* const names[] = {"battery.save", "battery.rec", "battery.sby", "battery.res"};
+            return fail(ConfigError::BadValue, names[i]);
+        }
+        given++;
+    }
+    if (given != 0 && given != 4) return fail(ConfigError::MissingField, "battery.thresholds");
+    out.thresholds = given == 4;
+    if (out.thresholds) {
+        uint8_t broken = checkThresholds(out.saveMv, out.recoveryMv, out.standbyMv, out.resumeMv, out.cells, out.chemistry);
+        if (broken & 1) return fail(ConfigError::BadValue, "battery.save");
+        if (broken & 2) return fail(ConfigError::BadValue, "battery.rec");
+        if (broken & 4) return fail(ConfigError::BadValue, "battery.sby");
+        if (broken & 8) return fail(ConfigError::BadValue, "battery.res");
+    }
+    return ok();
+}
+
 }  // namespace
+
+void perCellRangeMv(Chemistry chemistry, uint16_t& minMv, uint16_t& maxMv) {
+    switch (chemistry) {
+        case Chemistry::LiFePO4: minMv = 2500; maxMv = 3400; break;
+        case Chemistry::Custom: minMv = 0; maxMv = 0; break;
+        default: minMv = 2800; maxMv = 4100; break;
+    }
+}
+
+uint8_t checkThresholds(uint16_t saveMv, uint16_t recoveryMv, uint16_t standbyMv, uint16_t resumeMv, uint8_t cells,
+                        Chemistry chemistry) {
+    uint32_t n = cells ? cells : 1;
+    uint32_t save = saveMv, recovery = recoveryMv, standby = standbyMv, resume = resumeMv;
+    uint16_t minCell = 0, maxCell = 0;
+    perCellRangeMv(chemistry, minCell, maxCell);
+    uint8_t broken = 0;
+    if (minCell || maxCell) {
+        uint32_t min = minCell * n, max = maxCell * n;
+        if (save < min || save > max) broken |= 1;
+        if (recovery < min || recovery > max) broken |= 2;
+        if (standby < min || standby > max) broken |= 4;
+        if (resume < min || resume > max) broken |= 8;
+    }
+    // Gaps are pack mV, whatever the cell count.
+    if (recovery + kGapRecoveryMv > save) broken |= 2;
+    if (standby + kGapStandbyMv > recovery) broken |= 4;
+    if (recovery + kGapResumeMv > resume) broken |= 8;
+    if (resume > save + kResumeAboveSaveMv) broken |= 8;
+    return broken;
+}
 
 ParseResult makeResult(ConfigError error, const char* detail) {
     ParseResult r;
@@ -189,6 +294,9 @@ ParseResult parsePayload(const char* json, size_t len, Config& out) {
     uint32_t adcMv = doc["adcMv"] | 3200u;  // checked before it is narrowed to 16 bits
     if (adcMv < 1000 || adcMv > 12000) return fail(ConfigError::BadValue, "adcMv");
     out.adcRangeMv = uint16_t(adcMv);
+
+    ParseResult battery = parseBattery(doc["battery"], out.battery);
+    if (battery.error != ConfigError::Ok) return battery;
 
     JsonArrayConst buses = doc["i2c"];
     if (buses.size() > kMaxI2cBuses) return fail(ConfigError::BadValue, "i2c");

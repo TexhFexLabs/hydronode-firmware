@@ -10,9 +10,15 @@
 // radio on. A round with nothing due does not connect at all. Between rounds the board sleeps as
 // deep as the config allows; gas sensors that learn continuously get their short readings from
 // light sleep, a rain gauge tip or a button press wakes the board for a moment.
+//
+// On a battery with thresholds (config block "battery", firmware 0.8.0) every round also feeds
+// the battery reading to HydroNodeBatteryGuard: below Save the interval doubles and gas and dust
+// sensors rest, below Recovery the board sends one last round (pwr=recovery), switches its
+// outputs off and only checks the battery, below Standby it wakes once an hour.
 
 #include <Arduino.h>
 #include <HydroNode.h>
+#include <HydroNodeBatteryGuard.h>
 #include <Wire.h>
 
 #if !defined(ESP8266)
@@ -25,6 +31,7 @@
 #include "drivers/Driver.h"
 #include "net/Net.h"
 #include "ota/Ota.h"
+#include "power/Battery.h"
 #include "power/Power.h"
 #include "power/Schedule.h"
 #include "status/Status.h"
@@ -54,6 +61,13 @@ uint64_t anchorMs = 0;
 bool clockStopped = false;
 ParseResult configError = makeResult(ConfigError::Ok, "");
 
+// Battery thresholds: the guard decides whether the radio may run. Its memory lives in RTC
+// memory (power::batteryState()), so it carries through deep sleep.
+HydroNodeBatteryGuard guard;
+bool guarding = false;
+battery::Measurement batteryAt{-1, -1};
+static_assert(sizeof(HydroNodeBatteryGuard::Memory) <= sizeof(power::BatteryState::guard), "guard memory");
+
 // Sensor supply: when it came on, and whether it has been on long enough that no sensor needs
 // its power-up time (a timer wake-up without a power pin: the sensors slept powered).
 uint32_t poweredAt = 0;
@@ -79,6 +93,15 @@ uint8_t heldInputs = 0;
 uint32_t roundStart = 0;
 uint32_t roundNapMs = 0;
 uint32_t roundWifiMs = 0;
+
+bool radioAllowed() { return !guarding || guard.radioAllowed(); }
+bool saving() { return guarding && guard.state() == HydroNodeBatteryGuard::SAVE; }
+
+// The interval this round runs at: twice the configured one in SAVE.
+uint32_t intervalSeconds() {
+    uint32_t factor = saving() ? 2 : 1;
+    return cfg.intervalSeconds * factor > kMaxIntervalSeconds ? kMaxIntervalSeconds : cfg.intervalSeconds * factor;
+}
 
 bool sleeping() { return cfg.mode == SleepMode::LightSleep || cfg.mode == SleepMode::DeepSleep || cfg.mode == SleepMode::Hibernate; }
 bool restartsEachCycle() { return cfg.mode == SleepMode::DeepSleep || cfg.mode == SleepMode::Hibernate; }
@@ -127,16 +150,52 @@ uint16_t deviceEvery(uint8_t i) {
     return every ? every : 1;
 }
 
-bool due(const ChannelConfig& ch) { return schedule::due(roundIndex, ch.every); }
+bool due(const ChannelConfig& ch) {
+    return schedule::due(roundIndex, saving() ? battery::everyInSave(ch.every) : ch.every);
+}
 
-bool deviceDue(uint8_t i) {
+bool isBatteryDevice(uint8_t i) { return guarding && batteryAt.device == int8_t(i); }
+
+// A value of this device goes out this round. Radio off (battery low): nothing; SAVE: gas and
+// dust sensors rest.
+bool channelsDue(uint8_t i) {
+    if (!radioAllowed()) return false;
+    if (saving() && battery::restsInSave(cfg.devices[i].driver)) return false;
     for (uint8_t c = 0; c < cfg.devices[i].channelCount; c++) {
         if (due(cfg.devices[i].channels[c])) return true;
     }
     return false;
 }
 
+// The device is read this round: a value is due, or it measures the battery the thresholds watch
+// (read every round, sent only when its own value is due).
+bool deviceDue(uint8_t i) { return channelsDue(i) || isBatteryDevice(i); }
+
 // --- clients and sending ----------------------------------------------------------------------
+
+// X-Device-Config: interval and thresholds the board runs, with the revision the backend wrote
+// into the battery block. Without a battery block the board reports src=usb and its interval.
+void reportDeviceConfig() {
+    const BatteryConfig& b = cfg.battery;
+    HydroNodeDeviceConfig c;
+    c.intervalSeconds = cfg.intervalSeconds;
+    c.source = battery::sourceToken(b.source);
+    c.revision = uint16_t(b.rev > 65535 ? 65535 : b.rev);
+    if (b.present && b.source != PowerSource::Usb) {
+        if (b.thresholds) {
+            c.saveMv = b.saveMv;
+            c.recoveryMv = b.recoveryMv;
+            c.standbyMv = b.standbyMv;
+            c.resumeMv = b.resumeMv;
+        }
+        c.gauge = battery::gaugeToken(cfg);
+        c.cells = b.cells;
+        c.capacityMah = b.capacityMah;
+        if (battery::missingMeasurement(cfg)) c.error = "no_measurement";
+    }
+    c.powerState = guarding ? guard.stateName() : nullptr;
+    hydro->setDeviceConfig(c);
+}
 
 void ensureClient() {
     if (!hydro) {
@@ -144,6 +203,7 @@ void ensureClient() {
         hydro->begin();
         act::attach(*hydro);
         ota::attach(*hydro, cfg);
+        reportDeviceConfig();
     } else if (clockStopped) {
         clockStopped = !hydro->syncTime();
     }
@@ -422,7 +482,7 @@ void startBuses() {
 void createDrivers() {
     for (uint8_t i = 0; i < cfg.deviceCount; i++) {
         if (act::isActuator(cfg.devices[i].driver)) continue;  // set up in act::begin()
-        contexts[i] = {cfg.mode, cfg.intervalSeconds, deviceEvery(i), cfg.sensorPowerPin >= 0, cfg.adcRangeMv};
+        contexts[i] = {cfg.mode, cfg.intervalSeconds, deviceEvery(i), cfg.sensorPowerPin >= 0, cfg.adcRangeMv, &cfg.battery};
         drivers[i] = createDriver(cfg.devices[i], buses, contexts[i]);
         if (!drivers[i]) status::line("ERR SENSOR %s unknown", cfg.devices[i].driver);
     }
@@ -551,27 +611,45 @@ void collectProblems(const Reading readings[][kMaxChannels], const Run runs[], c
     }
 }
 
+// Feeds this round's battery reading to the guard and keeps its memory for the next wake-up.
+void updateGuard(const Reading readings[][kMaxChannels]) {
+    const Reading& r = readings[batteryAt.device][batteryAt.channel];
+    float mv = r.value * 1000.0f;
+    bool valid = r.ok && mv >= 500.0f && mv <= 65000.0f;
+    HydroNodeBatteryGuard::State before = guard.state();
+    guard.update(valid ? uint16_t(mv) : 0, valid, uint32_t(power::clockMs() / 1000));
+    HydroNodeBatteryGuard::Memory memory = guard.memory();
+    memcpy(power::batteryState().guard, &memory, sizeof(memory));
+    power::saveBattery();
+    if (guard.state() != before || !valid) {
+        status::line("BATTERY %s %s %u mV", guard.stateName(), valid ? "ok" : "invalid", valid ? unsigned(mv) : 0u);
+    }
+}
+
 // One round: the due sensors measure, then the values go out over one connection. The report
 // tells an update in verification how it went.
 ota::RoundReport measureAndSend() {
     ota::RoundReport report{false, 0, nullptr};
     Reading readings[kMaxDevices][kMaxChannels] = {};
     Run runs[kMaxDevices] = {};
-    bool anyDue = false;
+    bool anyDue = false;   // a value goes out
+    bool anyRead = false;  // a device is read (the battery is read every round)
     bool persistent = !restartsEachCycle();  // drivers live on between rounds
 
     for (uint8_t i = 0; i < cfg.deviceCount; i++) {
         if (!drivers[i]) continue;
         runs[i].due = deviceDue(i);
-        anyDue = anyDue || runs[i].due;
+        anyDue = anyDue || channelsDue(i);
+        anyRead = anyRead || runs[i].due;
         if (runs[i].due) drivers[i]->resetProblem();  // what goes wrong this round, not before
     }
-    if (anyDue && cyclesSensorPower() && !sensorsPowered) powerSensors();
+    if (anyRead && cyclesSensorPower() && !sensorsPowered) powerSensors();
     for (uint8_t i = 0; i < cfg.deviceCount && sensorsPowered; i++) {
         Driver* d = drivers[i];
         if (!d) continue;
-        // Set up once per power-up even when not due: it then rests in its low power state.
-        bool setUp = !begun[i] && (coldSensors || persistent);
+        // Set up once per power-up even when not due: it then rests in its low power state. With
+        // the radio off for the battery only the battery is touched.
+        bool setUp = !begun[i] && (coldSensors || persistent) && radioAllowed();
         bool touch = (runs[i].due && !d->afterConnect()) || setUp;
         if (!touch) continue;
         if (!begun[i]) {
@@ -603,11 +681,19 @@ ota::RoundReport measureAndSend() {
         if (drivers[i] && drivers[i]->afterConnect()) runs[i].due = deviceDue(i);
     }
     status::line("ROUND %lu", (unsigned long)roundIndex);
-    if (!anyDue) return report;
+    // The thresholds see the battery before the radio goes on. Running before and not any more:
+    // one last round with pwr=recovery, so HydroNode shows why the board goes quiet.
+    bool wasRunning = radioAllowed();
+    if (guarding) updateGuard(readings);
+    bool lastRound = wasRunning && !radioAllowed();
+    if (!wasRunning && radioAllowed()) act::resume();  // battery recovered
+    if (!radioAllowed() && !lastRound) return report;
+    if (!anyDue && !lastRound) return report;
 
     if (!connectForSend()) return report;
     report.wifiOk = true;
     ensureClient();
+    if (guarding) hydro->setPowerState(guard.stateName());
     // Values that only exist with a connection (WiFi signal).
     for (uint8_t i = 0; i < cfg.deviceCount; i++) {
         if (drivers[i] && drivers[i]->afterConnect() && runs[i].due) {
@@ -644,7 +730,8 @@ ota::RoundReport measureAndSend() {
     for (uint8_t i = 0; i < cfg.deviceCount; i++) {
         for (uint8_t c = 0; c < cfg.devices[i].channelCount; c++) {
             const Reading& r = readings[i][c];
-            if (!r.type || !due(cfg.devices[i].channels[c])) continue;
+            bool batteryValue = lastRound && isBatteryDevice(i) && batteryAt.channel == int8_t(c);
+            if (!r.type || !(due(cfg.devices[i].channels[c]) || batteryValue)) continue;
             if (!r.ok) {
                 bool settling = r.warming;
                 status::line("%s SENSOR %s %s", settling ? "WAIT" : "ERR", cfg.devices[i].driver,
@@ -699,11 +786,11 @@ void runRound() {
 // land on anchor + n × interval however much the sleep timer drifts. Without it, the interval
 // minus the time awake.
 uint32_t untilNextRound() {
-    uint32_t fallback = power::sleepMs(cfg.intervalSeconds, millis() - cycleStart);
+    uint32_t fallback = power::sleepMs(intervalSeconds(), millis() - cycleStart);
     // A round that sent nothing did not fetch the time; after a stopped clock it would be off.
     uint64_t now = hydro && !clockStopped ? hydro->epochMs() : 0;
     if (now == 0) return fallback;
-    uint64_t interval = uint64_t(cfg.intervalSeconds) * 1000;
+    uint64_t interval = uint64_t(intervalSeconds()) * 1000;
     uint64_t started = now - (millis() - cycleStart);  // this round's start
     if (anchorMs == 0 || anchorMs > started || now - anchorMs > 30ULL * 24 * 3600 * 1000) anchorMs = started;
     uint64_t wait = schedule::nextSlotMs(anchorMs, interval, started, now) - now;
@@ -734,6 +821,31 @@ void sensorsOffForSleep() {
     power::saveRounds({roundIndex, anchorMs});
     power::saveReport();
     power::deepSleep(cfg, ms, wakeInputs, wakeInputCount);
+}
+
+// Battery in Recovery or Standby: outputs off, radio off, sleep until the next battery check (the
+// interval in Recovery, an hour in Standby). Deep sleep without wake pins; an ESP8266 that is not
+// wired for deep sleep (GPIO16 to RST) naps in light sleep instead. Returns only from that nap.
+void sleepForBattery() {
+    act::safeOff();
+    if (hydro) hydro->closeConnection();
+    net::off();
+    uint32_t seconds = guard.state() == HydroNodeBatteryGuard::STANDBY ? HydroNodeBatteryGuard::STANDBY_WAKE_S
+                                                                       : cfg.intervalSeconds;
+    if (seconds > HydroNodeBatteryGuard::STANDBY_WAKE_S) seconds = HydroNodeBatteryGuard::STANDBY_WAKE_S;
+    status::line("SLEEP BATTERY %s %lu", guard.stateName(), (unsigned long)seconds);
+#if defined(ESP8266)
+    if (cfg.mode != SleepMode::DeepSleep) {
+        if (cyclesSensorPower()) sensorsOffForSleep();
+        pause(seconds * 1000, true);
+        cycleStart = millis();
+        return;
+    }
+#endif
+    sensorsOffForSleep();
+    power::saveRounds({roundIndex, anchorMs});
+    power::saveReport();
+    power::deepSleep(cfg, seconds * 1000, nullptr, 0);
 }
 
 // A deep sleep was cut short by a pin: count the tip, send the press, or start the round when
@@ -790,7 +902,24 @@ void setup() {
     status::line("CFG ok board=%s devices=%u mode=%s interval=%lu rev=%lu", cfg.board, cfg.deviceCount,
                  sleepModeName(cfg.mode), (unsigned long)cfg.intervalSeconds, (unsigned long)cfg.rev);
 
-    act::begin(cfg);
+    // Battery thresholds: the guard picks up where it was before the sleep. After a reset the
+    // first reading decides, like a station boot.
+    power::loadBattery(!(timer || pin));
+    guarding = battery::guards(cfg);
+    batteryAt = battery::measurement(cfg);
+    if (guarding) {
+        const BatteryConfig& b = cfg.battery;
+        guard.setThresholds({b.saveMv, b.recoveryMv, b.standbyMv, b.resumeMv});
+        HydroNodeBatteryGuard::Memory memory;
+        memcpy(&memory, power::batteryState().guard, sizeof(memory));
+        guard.restore(memory);
+        status::line("BATTERY %s save=%u rec=%u sby=%u res=%u", guard.stateName(), b.saveMv, b.recoveryMv, b.standbyMv,
+                     b.resumeMv);
+    } else if (battery::missingMeasurement(cfg)) {
+        status::line("WARN BATTERY thresholds without a BATTERY_VOLTAGE value, not applied");
+    }
+
+    act::begin(cfg, !radioAllowed());
     startBuses();
     createDrivers();
     collectWakeInputs(!(timer || pin));
@@ -807,7 +936,7 @@ void setup() {
         poweredLong = timer || pin;
         coldSensors = !(timer || pin);
     }
-    if (cfg.mode == SleepMode::AlwaysOn || cfg.mode == SleepMode::ModemSleep) connectForSend();
+    if ((cfg.mode == SleepMode::AlwaysOn || cfg.mode == SleepMode::ModemSleep) && radioAllowed()) connectForSend();
 }
 
 void loop() {
@@ -822,13 +951,18 @@ void loop() {
     runRound();
     roundIndex++;
 
+    if (!radioAllowed()) {
+        sleepForBattery();
+        return;
+    }
+
     switch (cfg.mode) {
         case SleepMode::AlwaysOn:
         case SleepMode::ModemSleep:
-            pause(power::sleepMs(cfg.intervalSeconds, millis() - cycleStart), false);
-            cycleStart += cfg.intervalSeconds * 1000;
+            pause(power::sleepMs(intervalSeconds(), millis() - cycleStart), false);
+            cycleStart += intervalSeconds() * 1000;
             // Fell behind (a slow round): start the next one from now instead of catching up.
-            if (int32_t(millis() - cycleStart) > int32_t(cfg.intervalSeconds * 1000)) cycleStart = millis();
+            if (int32_t(millis() - cycleStart) > int32_t(intervalSeconds() * 1000)) cycleStart = millis();
             poweredLong = true;
             break;
 

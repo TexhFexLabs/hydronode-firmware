@@ -18,7 +18,16 @@ namespace hn::act {
 bool isActuator(const char* driver);
 
 // Sets up every output in its start state and every button pin. Call once after boot.
-void begin(const Config& cfg);
+// `safe`: the battery is in Recovery or Standby, every output starts off (the remembered state
+// stays stored for when the battery recovered).
+void begin(const Config& cfg, bool safe = false);
+
+// Battery low: every output off, timed pulses ended, held off through sleep. The remembered
+// state is not touched, so the outputs come back as they were after the next normal boot.
+void safeOff();
+
+// The battery recovered: every output back to its remembered state.
+void resume();
 
 // Registers the command callbacks.
 void attach(HydroNode& hydro);

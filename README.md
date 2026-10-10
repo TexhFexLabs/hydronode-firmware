@@ -43,14 +43,15 @@ build from the browser:
 | `tools/sign-release.sh` | signs every OTA image of a release (YubiKey or a PEM key), writes the `ota` blocks into the manifest |
 | `tools/dev-keys/` | local dev signing key for tests (`make-dev-key.sh`, keys gitignored) |
 | `tools/check-image-size.py` | fails when an image uses more than 85 % of its OTA slot |
-| `catalog/fixtures/` | golden config block shared with the web encoder |
+| `catalog/fixtures/` | golden config blocks shared with the web encoder (`config-v1`, `config-v1-battery` with the 0.8.0 battery block) |
+| `test/vectors/` | battery threshold rules shared with backend, web, library and station |
 
 ## Build
 
 ```bash
 pip install platformio
 pio run                      # all chip families plus the scanners
-pio test -e native           # host tests (config, OTA logic)
+pio test -e native           # host tests (config, OTA logic, battery rules)
 pio test -e native-ota       # OTA state machine and measurement loop on simulated hardware
 node tools/validate-catalog.mjs --out dist
 node tools/license-check.mjs --out dist/THIRD_PARTY_LICENSES.md
@@ -73,7 +74,7 @@ bash tools/sign-release.sh --key tools/dev-keys/ota-dev.pem
 ## Serial status lines
 
 The firmware prints machine readable lines at 115200 baud, all prefixed with `HN:`
-(`BOOT`, `CFG`, `DEV`, `OUT`, `BTN`, `OW`, `ROUND`, `WIFI`, `SEND`, `SLEEP`, `ERR …`). The web
+(`BOOT`, `CFG`, `DEV`, `OUT`, `BTN`, `OW`, `ROUND`, `BATTERY`, `WIFI`, `SEND`, `SLEEP`, `ERR …`). The web
 flasher shows them as a checklist. Secrets are never printed.
 
 ## Rounds and timing
@@ -86,6 +87,14 @@ subtracts the time it was awake from the sleep. All values of a round go out in 
 Always on and modem sleep with rounds of a minute or less keep the TLS connection open from one
 round to the next. `catalog/boards.json` carries these timings per family, the web app adds them up to the
 fastest interval a configuration can keep.
+
+## Battery and thresholds
+
+From 0.8.0 on a config can describe the battery (`battery` block: source, chemistry, cells,
+capacity, four thresholds). The board then saves energy below Save, switches WiFi and outputs off
+below Recovery and sleeps an hour at a time below Standby, like the HydroNode station. Gauges
+(MAX17043/48/49, LC709203F, BQ27441) and INA219/226/260 with charge counting measure the battery.
+It reports interval and thresholds as `X-Device-Config`. Details: [docs/POWER.md](docs/POWER.md).
 
 ## Outputs and commands
 

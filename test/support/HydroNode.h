@@ -1,5 +1,6 @@
 #pragma once
 #include <ArduinoJson.h>
+#include <HydroNodeDeviceConfig.h>  // the library's plain struct (../hydronode-library/src)
 #include <functional>
 #include <map>
 #include <string>
@@ -22,6 +23,10 @@ public:
     void closeConnection() {}
     void setFirmwareIdentity(const char*, const char*, const char*) {}
     void setResetReason(const char*) {}
+    HydroNodeDeviceConfig deviceConfig;
+    std::string powerState;
+    void setDeviceConfig(const HydroNodeDeviceConfig& c) { deviceConfig = c; }
+    void setPowerState(const char* state) { powerState = state ? state : ""; }
     void setExtraHeader(const char* name, const char* value) { headers[name] = value; }
     void clearExtraHeader(const char* name) { headers.erase(name); }
     void onResponseKey(const char* key, std::function<void(JsonVariantConst)> fn) { handlers[key] = fn; }

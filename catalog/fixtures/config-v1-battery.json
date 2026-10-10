@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "rev": 7,
+  "board": "esp32c3-supermini",
+  "sensor": { "id": "550e8400-e29b-41d4-a716-446655440000", "secret": "aB3dE5fG7hI9jK1lM2nO4pQ6rS8tU0vW", "host": "hydronode.tech" },
+  "wifi": { "ssid": "Gärten WLAN", "pass": "correct horse battery staple", "ip": null },
+  "interval": 300,
+  "power": { "mode": "DEEP_SLEEP", "wakePin": 3, "wakeLevel": 0, "sensorPowerPin": 10, "fastReconnect": true },
+  "battery": { "src": "solar", "chem": "lipo", "cells": 1, "mah": 2000, "save": 3500, "rec": 3300, "sby": 3200, "res": 3600, "rev": 7 },
+  "i2c": [{ "sda": 6, "scl": 7, "hz": 100000 }],
+  "devices": [
+    { "drv": "sht4x", "bus": 0, "addr": 68, "ch": [{ "q": "t", "type": "TEMPERATURE" }, { "q": "rh", "type": "HUMIDITY" }] },
+    { "drv": "max1704x", "bus": 0, "addr": 54, "opt": { "chip": "MAX17048" }, "ch": [{ "q": "v", "type": "BATTERY_VOLTAGE" }, { "q": "pct", "type": "BATTERY_PERCENTAGE" }, { "q": "crate", "type": "BATTERY_CHARGE_RATE", "n": 4 }] }
+  ]
+}
