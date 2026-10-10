@@ -26,7 +26,7 @@ constexpr uint32_t kRoundSlot = 4;            // slots 4..7
 constexpr uint32_t kReportMagic = 0x484E5250;  // "HNRP"
 constexpr uint32_t kReportSlot = 16;           // slots 16..23 (WiFi uses 8..11, outputs 64+)
 constexpr uint32_t kBatteryMagic = 0x484E4241;  // "HNBA"
-constexpr uint32_t kBatterySlot = 24;           // slots 24..32: magic + BatteryState
+constexpr uint32_t kBatterySlot = 24;           // slots 24..35: magic + BatteryState + sleep counts
 
 struct StoredReport {
     uint32_t magic;
@@ -38,10 +38,14 @@ StoredReport stored{};
 struct StoredBattery {
     uint32_t magic;
     BatteryState state;
+    uint32_t sleepMs;       // length of the deep sleep that ended with this boot (timer only)
+    uint32_t sleptSinceMs;  // light and deep sleep since takeSleptMs(), before that sleep
 };
+static_assert(sizeof(StoredBattery) <= 12 * 4, "battery does not fit its RTC slots");
 StoredBattery battery{};
 uint64_t bootClockMs = 0;
 uint32_t sleptMs = 0;  // light sleep this boot: millis() stood still
+uint32_t sleptSinceCountMs = 0;
 
 struct LongSleep {
     uint32_t magic;
@@ -172,6 +176,7 @@ void lightSleep(const Config& cfg, uint32_t ms, const WakeInput*, uint8_t, bool 
     wifi_fpm_open();
     wifi_fpm_set_wakeup_cb(onWake);
     sleptMs += ms;
+    sleptSinceCountMs += ms;
     uint32_t left = ms;
     while (left > 0) {
         uint32_t chunk = left > 260000 ? 260000 : left;
@@ -188,6 +193,7 @@ void deepSleep(const Config& cfg, uint32_t ms, const WakeInput*, uint8_t) {
     status::line("SLEEP DEEP %lu.%02lu", (unsigned long)(ms / 1000), (unsigned long)(ms % 1000 / 10));
     (void)cfg;
     battery.state.clockMs = clockMs() + ms;
+    battery.sleepMs = ms;
     saveBattery();
     sleepChunk(ms);
 }
@@ -197,14 +203,23 @@ BatteryState& batteryState() { return battery.state; }
 void loadBattery(bool fresh) {
     ESP.rtcUserMemoryRead(kBatterySlot, reinterpret_cast<uint32_t*>(&battery), sizeof(battery));
     if (fresh || battery.magic != kBatteryMagic) {
-        battery = {kBatteryMagic, {}};
+        battery = {kBatteryMagic, {}, 0, 0};
         battery.state.chargeMah = NAN;
     }
     bootClockMs = battery.state.clockMs;
+    sleptSinceCountMs = battery.sleptSinceMs + battery.sleepMs;
+    battery.sleepMs = 0;
+}
+
+uint32_t takeSleptMs() {
+    uint32_t ms = sleptSinceCountMs;
+    sleptSinceCountMs = 0;
+    return ms;
 }
 
 void saveBattery() {
     battery.magic = kBatteryMagic;
+    battery.sleptSinceMs = sleptSinceCountMs;
     ESP.rtcUserMemoryWrite(kBatterySlot, reinterpret_cast<uint32_t*>(&battery), sizeof(battery));
 }
 

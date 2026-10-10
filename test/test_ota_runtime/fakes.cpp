@@ -111,6 +111,7 @@ BatteryState& batteryState() { static BatteryState s{}; return s; }
 void loadBattery(bool) {}
 void saveBattery() {}
 uint64_t clockMs() { return millis(); }
+uint32_t takeSleptMs() { return 0; }
 }
 namespace hn::status { void begin() {} void line(const char*, ...) {} void flush() {} }
 namespace hn {

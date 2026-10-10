@@ -110,6 +110,10 @@ ParseResult parseBattery(JsonObjectConst b, BatteryConfig& out) {
         }
         out.capacityMah = b["mah"].as<uint32_t>();
     }
+    if (!b["slp"].isNull()) {
+        if (!b["slp"].is<uint32_t>() || b["slp"].as<uint32_t>() > 1000000) return fail(ConfigError::BadValue, "battery.slp");
+        out.restUa = b["slp"].as<uint32_t>();
+    }
     if (!b["rev"].isNull()) {
         if (!b["rev"].is<uint32_t>()) return fail(ConfigError::BadValue, "battery.rev");
         out.rev = b["rev"].as<uint32_t>();

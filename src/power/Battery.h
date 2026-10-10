@@ -54,6 +54,21 @@ float percentFromVoltage(uint16_t packMv, uint8_t cells, Chemistry chemistry);
 float countCharge(float mah, float currentA, uint32_t seconds, uint16_t packMv, uint32_t capacityMah, uint8_t cells,
                   Chemistry chemistry);
 
+// What the board and the sensors drew while the board slept: `restUa` (the battery block's
+// "slp", worked out by the builder from the catalog) for `sleptSeconds`. The INA only measures
+// while the board is awake, so its current counts only the time awake. NAN stays NAN, a gap of
+// more than two days counts nothing (as countCharge), never below 0.
+float restCharge(float mah, uint32_t restUa, uint32_t sleptSeconds);
+
+// --- clock --------------------------------------------------------------------------------------
+
+// How long a deep sleep really lasted, for the battery clock (guard's 60 s, charge counter). The
+// ESP32 system time keeps running through deep sleep: wake-up time `nowUs` minus the time it went
+// to sleep, minus `awakeMs` since the wake-up. Never more than the planned sleep and never below
+// 0, so a pin that ends the sleep early counts only the time that passed. Without a usable start
+// time (0, or later than now) it counts the planned sleep, as a timer wake-up would.
+uint32_t sleptMs(int64_t sleptAtUs, int64_t nowUs, uint32_t awakeMs, uint32_t plannedMs);
+
 // --- gauges -------------------------------------------------------------------------------------
 
 enum class Max1704x : uint8_t { Max17043, Max17048, Max17049 };

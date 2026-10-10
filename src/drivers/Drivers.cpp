@@ -862,9 +862,15 @@ float chargePercent(const DriverContext& ctx, float volts, float amps, bool ok) 
     power::BatteryState& s = power::batteryState();
     uint32_t now = uint32_t(power::clockMs() / 1000);
     uint32_t seconds = isnan(s.chargeMah) ? 0 : now - s.chargeAtS;
+    // The current read now stands for the time awake; asleep the board drew its rest current.
+    uint32_t slept = power::takeSleptMs() / 1000;
+    if (slept > seconds) slept = seconds;
     float mv = volts * 1000.0f;
-    s.chargeMah = battery::countCharge(s.chargeMah, amps, seconds, uint16_t(mv < 0 ? 0 : mv > 65000 ? 65000 : mv),
-                                       b->capacityMah, b->cells, b->chemistry);
+    s.chargeMah = battery::countCharge(s.chargeMah, amps, seconds - slept,
+                                       uint16_t(mv < 0 ? 0 : mv > 65000 ? 65000 : mv), b->capacityMah, b->cells,
+                                       b->chemistry);
+    if (seconds > 2u * 24 * 3600) slept = 0;  // a lost clock counts nothing, as countCharge
+    s.chargeMah = battery::restCharge(s.chargeMah, b->restUa, slept);
     s.chargeAtS = now;
     power::saveBattery();
     return isnan(s.chargeMah) ? NAN : s.chargeMah / float(b->capacityMah) * 100.0f;
@@ -985,7 +991,12 @@ public:
             return false;
         }
         const BatteryConfig* b = ctx_.battery;
-        if (b && b->capacityMah && b->capacityMah <= 32767 && design != b->capacityMah) {
+        // Design capacity is a signed 16 bit field: larger batteries keep the chip's own value
+        // (the builder and the server refuse them, this covers older setups).
+        if (b && b->capacityMah > 32767) {
+            status::line("WARN BQ27441 design capacity %lu mAh above 32767, kept %u mAh", (unsigned long)b->capacityMah,
+                         unsigned(design));
+        } else if (b && b->capacityMah && design != b->capacityMah) {
             bool done = setDesignCapacity(uint16_t(b->capacityMah));
             status::line("%s BQ27441 design capacity %lu mAh", done ? "SET" : "WARN", (unsigned long)b->capacityMah);
         }

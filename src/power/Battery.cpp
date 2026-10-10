@@ -111,6 +111,21 @@ float countCharge(float mah, float currentA, uint32_t seconds, uint16_t packMv, 
     return next;
 }
 
+float restCharge(float mah, uint32_t restUa, uint32_t sleptSeconds) {
+    if (isnan(mah) || restUa == 0 || sleptSeconds > 2u * 24 * 3600) return mah;
+    float next = mah - float(restUa) / 1000.0f * float(sleptSeconds) / 3600.0f;
+    return next < 0 ? 0 : next;
+}
+
+// --- clock --------------------------------------------------------------------------------------
+
+uint32_t sleptMs(int64_t sleptAtUs, int64_t nowUs, uint32_t awakeMs, uint32_t plannedMs) {
+    if (sleptAtUs <= 0 || nowUs < sleptAtUs) return plannedMs;
+    int64_t ms = (nowUs - sleptAtUs) / 1000 - int64_t(awakeMs);
+    if (ms <= 0) return 0;
+    return ms >= int64_t(plannedMs) ? plannedMs : uint32_t(ms);
+}
+
 // --- gauges -------------------------------------------------------------------------------------
 
 Max1704x max1704xChip(const char* option) {

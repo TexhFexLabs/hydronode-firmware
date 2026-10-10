@@ -14,6 +14,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Host tests and the development pin (symlink://../hydronode-library) build against the
+      # HydroNode-Library checkout next to this repository: same branch name if it exists, else main.
+      - name: HydroNode-Library next to the firmware
+        run: |
+          ref="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          git clone --depth 1 --branch "$ref" https://github.com/TexhFexLabs/HydroNode-Library.git ../hydronode-library \
+            || git clone --depth 1 https://github.com/TexhFexLabs/HydroNode-Library.git ../hydronode-library
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
@@ -28,6 +35,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Host tests and the development pin (symlink://../hydronode-library) build against the
+      # HydroNode-Library checkout next to this repository: same branch name if it exists, else main.
+      - name: HydroNode-Library next to the firmware
+        run: |
+          ref="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          git clone --depth 1 --branch "$ref" https://github.com/TexhFexLabs/HydroNode-Library.git ../hydronode-library \
+            || git clone --depth 1 https://github.com/TexhFexLabs/HydroNode-Library.git ../hydronode-library
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -46,6 +60,13 @@ jobs:
         env: [esp32, esp32s2, esp32s3, esp32c3, esp32c6, esp8266, scan-esp32, scan-esp32s2, scan-esp32s3, scan-esp32c3, scan-esp32c6, scan-esp8266]
     steps:
       - uses: actions/checkout@v4
+      # Host tests and the development pin (symlink://../hydronode-library) build against the
+      # HydroNode-Library checkout next to this repository: same branch name if it exists, else main.
+      - name: HydroNode-Library next to the firmware
+        run: |
+          ref="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          git clone --depth 1 --branch "$ref" https://github.com/TexhFexLabs/HydroNode-Library.git ../hydronode-library \
+            || git clone --depth 1 https://github.com/TexhFexLabs/HydroNode-Library.git ../hydronode-library
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"

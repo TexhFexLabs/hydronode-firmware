@@ -72,6 +72,7 @@ struct BatteryConfig {
     uint16_t standbyMv;
     uint16_t resumeMv;
     uint32_t rev;           // settings revision the backend wrote, 0 = none
+    uint32_t restUa;        // "slp": board and sensors between rounds, µA (INA charge counting), 0 = not given
 };
 
 enum class ConfigError : uint8_t {

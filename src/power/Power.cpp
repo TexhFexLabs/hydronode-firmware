@@ -130,7 +130,10 @@ RTC_DATA_ATTR int64_t nextRoundUs = 0;
 constexpr uint32_t kBatteryMagic = 0x484E4241;  // "HNBA"
 RTC_DATA_ATTR uint32_t batteryMagic = 0;
 RTC_DATA_ATTR BatteryState savedBattery = {};
-uint64_t bootClockMs = 0;  // savedBattery.clockMs at boot
+RTC_DATA_ATTR int64_t batterySleptAtUs = 0;  // system time when the last deep sleep began
+RTC_DATA_ATTR uint32_t batterySleepMs = 0;   // planned length of that sleep, 0 = counted
+RTC_DATA_ATTR uint32_t sleptSinceCountMs = 0;  // light and deep sleep since takeSleptMs()
+uint64_t bootClockMs = 0;  // savedBattery.clockMs at boot, plus the sleep that really passed
 
 int64_t nowUs() {
     struct timeval tv;
@@ -238,7 +241,10 @@ void lightSleep(const Config& cfg, uint32_t ms, const WakeInput* inputs, uint8_t
     esp_sleep_enable_timer_wakeup(uint64_t(ms) * 1000ULL);
     armLight(inputs, count);
     holdLevels(true);
+    int64_t before = nowUs();
     esp_light_sleep_start();
+    int64_t slept = (nowUs() - before) / 1000;
+    if (slept > 0) sleptSinceCountMs += uint32_t(slept);
     holdLevels(false);
     disarmLight(inputs, count);
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
@@ -250,7 +256,10 @@ void deepSleep(const Config& cfg, uint32_t ms, const WakeInput* inputs, uint8_t 
                  (unsigned long)(ms % 1000 / 10));
     status::flush();
     setNextRound(ms);
-    savedBattery.clockMs = clockMs() + ms;
+    // The sleep itself is added at wake-up (loadBattery): a pin may end it early.
+    savedBattery.clockMs = clockMs();
+    batterySleptAtUs = nowUs();
+    batterySleepMs = ms;
     saveBattery();
     esp_sleep_enable_timer_wakeup(uint64_t(ms) * 1000ULL);
     if (hibernate) {
@@ -314,8 +323,22 @@ void loadBattery(bool fresh) {
         savedBattery = {};
         savedBattery.chargeMah = NAN;
         batteryMagic = kBatteryMagic;
+        batterySleepMs = 0;
+        sleptSinceCountMs = 0;
     }
     bootClockMs = savedBattery.clockMs;
+    if (batterySleepMs) {
+        uint32_t slept = battery::sleptMs(batterySleptAtUs, nowUs(), millis(), batterySleepMs);
+        bootClockMs += slept;
+        sleptSinceCountMs += slept;
+        batterySleepMs = 0;
+    }
+}
+
+uint32_t takeSleptMs() {
+    uint32_t ms = sleptSinceCountMs;
+    sleptSinceCountMs = 0;
+    return ms;
 }
 
 void saveBattery() { batteryMagic = kBatteryMagic; }

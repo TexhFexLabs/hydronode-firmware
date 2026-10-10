@@ -249,6 +249,7 @@ void test_battery_fixture_parses() {
     TEST_ASSERT_EQUAL(3200, b.standbyMv);
     TEST_ASSERT_EQUAL(3600, b.resumeMv);
     TEST_ASSERT_EQUAL(7, b.rev);
+    TEST_ASSERT_EQUAL(0, b.restUa);  // only with INA charge counting
     TEST_ASSERT_EQUAL_STRING("max1704x", cfg.devices[1].driver);
     TEST_ASSERT_EQUAL(4, cfg.devices[1].channels[2].every);
 }
@@ -279,6 +280,11 @@ void test_battery_block_defaults_and_errors() {
     TEST_ASSERT_EQUAL(ConfigError::BadValue, parse(with(R"({"cells":17})"), cfg));
     TEST_ASSERT_EQUAL(ConfigError::BadValue, parse(with(R"({"mah":0})"), cfg));
     TEST_ASSERT_EQUAL(ConfigError::MissingField, parse(with(R"({"save":3500,"rec":3300})"), cfg));
+    // Rest current for INA charge counting, µA.
+    TEST_ASSERT_EQUAL(ConfigError::Ok, parse(with(R"({"rev":2,"slp":42})"), cfg));
+    TEST_ASSERT_EQUAL(42, cfg.battery.restUa);
+    TEST_ASSERT_EQUAL(ConfigError::BadValue, parse(with(R"({"slp":-1})"), cfg));
+    TEST_ASSERT_EQUAL(ConfigError::BadValue, parse(with(R"({"slp":2000000})"), cfg));
     ParseResult r = makeResult(ConfigError::Ok, "");
     auto b = block(with(R"({"save":3500,"rec":3300,"sby":3251,"res":3600})"));
     r = parseBlock(b.data(), b.size(), cfg);

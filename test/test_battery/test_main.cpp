@@ -103,6 +103,31 @@ void test_percent_from_voltage() {
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 70, percentFromVoltage(3300, 1, Chemistry::LiFePO4));
 }
 
+void test_rest_charge_while_asleep() {
+    // 5 min asleep at 50 µA: 50 * 300 / 3600 = 4.17 µAh, a mAh counter barely moves.
+    TEST_ASSERT_FLOAT_WITHIN(0.0005f, 1000.0f - 0.004167f, restCharge(1000.0f, 50, 300));
+    // A board that draws 8 mA asleep (dev board regulator) for an hour: 8 mAh.
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 992.0f, restCharge(1000.0f, 8000, 3600));
+    TEST_ASSERT_TRUE(isnan(restCharge(NAN, 50, 300)));
+    TEST_ASSERT_EQUAL_FLOAT(1000.0f, restCharge(1000.0f, 0, 300));          // no slp: nothing
+    TEST_ASSERT_EQUAL_FLOAT(1000.0f, restCharge(1000.0f, 50, 3u * 24 * 3600));  // clock lost
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, restCharge(1.0f, 100000, 3600));             // never below 0
+}
+
+void test_slept_ms_counts_what_really_passed() {
+    const int64_t at = 1000LL * 1000 * 1000;  // went to sleep at 1000 s system time
+    // Timer wake-up after 300 s, 40 ms awake since: the whole sleep.
+    TEST_ASSERT_EQUAL_UINT32(300000, sleptMs(at, at + 300040LL * 1000, 40, 300000));
+    // A rain pulse after 1 s ends the sleep early: 1 s, not 300 s.
+    TEST_ASSERT_EQUAL_UINT32(1000, sleptMs(at, at + 1040LL * 1000, 40, 300000));
+    // Never more than planned (timer a little late), never negative.
+    TEST_ASSERT_EQUAL_UINT32(300000, sleptMs(at, at + 302000LL * 1000, 40, 300000));
+    TEST_ASSERT_EQUAL_UINT32(0, sleptMs(at, at + 10LL * 1000, 40, 300000));
+    // No usable start time: the planned sleep, as before.
+    TEST_ASSERT_EQUAL_UINT32(300000, sleptMs(0, at, 40, 300000));
+    TEST_ASSERT_EQUAL_UINT32(300000, sleptMs(at, at - 1, 40, 300000));
+}
+
 void test_charge_counter() {
     // Unknown start: from the voltage.
     TEST_ASSERT_FLOAT_WITHIN(0.1f, 1000, countCharge(NAN, -0.1f, 0, 3750, 2000, 1, Chemistry::LiPo));
@@ -204,6 +229,8 @@ int main() {
     RUN_TEST(test_save_doubles_every_and_rests_gas_and_dust);
     RUN_TEST(test_percent_from_voltage);
     RUN_TEST(test_charge_counter);
+    RUN_TEST(test_slept_ms_counts_what_really_passed);
+    RUN_TEST(test_rest_charge_while_asleep);
     RUN_TEST(test_max1704x_registers);
     RUN_TEST(test_lc709203f_apa_and_profile);
     RUN_TEST(test_crc8);

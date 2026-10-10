@@ -84,7 +84,7 @@ void saveReport();
 // a hibernate keeps that memory powered (a few µA), else the guard would forget where it was.
 struct BatteryState {
     uint8_t guard[16];   // HydroNodeBatteryGuard::Memory, opaque here
-    uint64_t clockMs;    // clockMs() when the board went to sleep, plus the sleep
+    uint64_t clockMs;    // clockMs() when the board went to sleep (ESP8266: plus the sleep)
     float chargeMah;     // INA charge counter, NAN = not started
     uint32_t chargeAtS;  // clockMs() / 1000 of the last count
 };
@@ -93,9 +93,15 @@ BatteryState& batteryState();
 void loadBattery(bool fresh);
 void saveBattery();
 
-// Milliseconds since the last reset, deep sleep included (a pin that cuts a sleep short makes it
-// run a little ahead). Only differences count: the guard's 60 s, the charge counter's hours.
+// Milliseconds since the last reset, deep sleep included: on the ESP32 the time that really
+// passed, also when a pin ends the sleep early; the ESP8266 wakes only by its timer (a reset
+// starts over). Only differences count: the guard's 60 s, the charge counter's hours.
 uint64_t clockMs();
+
+// Milliseconds the board slept (light and deep sleep) since the last call, kept through deep
+// sleep. The INA charge counter takes it: measured current for the time awake, the battery
+// block's rest current ("slp") for the time asleep.
+uint32_t takeSleptMs();
 
 // ESP8266 only: its deep sleep lasts at most ~3.5 h. Longer intervals are chained, and the
 // intermediate wake-ups go straight back to sleep with the radio off. Call first thing in setup();
