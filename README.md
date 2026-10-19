@@ -1,27 +1,77 @@
-# HydroNode Firmware
+<div align="center">
+  <img src="docs/assets/hydronode-logo.svg" width="96" alt="HydroNode logo" />
+  <h1>HydroNode Firmware</h1>
+  <p><strong>Flash an ESP32 once from the browser. Every change after that goes over the air.</strong></p>
 
-Universal firmware for ESP32 and ESP8266 boards that report to [HydroNode](https://hydronode.tech).
-One binary per chip family (ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C6, ESP8266). Everything
-device specific (sensors, outputs, pins, interval, sleep mode, WiFi, sensor credentials) lives in
-a small config block in its own flash partition (`hncfg`, on the ESP8266 at `0x3F8000`).
+  [![Build](https://github.com/TexhFexLabs/hydronode-firmware/actions/workflows/build.yml/badge.svg)](https://github.com/TexhFexLabs/hydronode-firmware/actions/workflows/build.yml)
+  [![Release](https://img.shields.io/github/v/release/TexhFexLabs/hydronode-firmware?label=release)](https://github.com/TexhFexLabs/hydronode-firmware/releases/latest)
+  [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+  [![Chips](https://img.shields.io/badge/ESP32%20%7C%20S2%20%7C%20S3%20%7C%20C3%20%7C%20C6%20%7C%20ESP8266-555)](#supported-boards)
 
-The HydroNode web app builds that block in your browser and flashes firmware and config
-over USB (Web Serial). The WiFi password never leaves the browser in readable form.
+  <p>
+    <a href="https://hydronode.tech/?ref=gh-firmware"><strong>Website</strong></a> &nbsp;
+    <a href="https://hydronode.tech/blog/esp32-c3-without-code/?ref=gh-firmware">Flash without code</a> &nbsp;
+    <a href="https://hydronode.tech/blog/fleet-ota-updates/?ref=gh-firmware">Updates over the air</a> &nbsp;
+    <a href="https://github.com/TexhFexLabs/HydroNode-Library">Arduino library</a> &nbsp;
+    <a href="https://github.com/TexhFexLabs/hydronode-esphome">ESPHome component</a>
+  </p>
+</div>
 
-From 0.5.0 on, that USB flash is the last one a board needs. The ESP32 family (ESP32, S2, S3, C3,
-C6) then takes signed firmware updates and config updates over the air from the HydroNode fleet
-view; the ESP8266 takes config updates. A board that fails its check after an update goes back
-to what it ran before by itself. See [Updates over the air](#updates-over-the-air).
+---
 
-## Use it
+Universal firmware for ESP32 and ESP8266 sensor boards that report to [HydroNode](https://hydronode.tech/?ref=gh-firmware),
+a free platform for DIY sensors. You pick the board and the sensors you wired in the browser, flash once over USB, and from
+then on new firmware, new sensors, other pins or another interval reach the board over the air. No reflashing over a cable.
 
-You do not need to build this repository to use the firmware. The Device Builder in the HydroNode
-web app (Fleet, Device builder) picks the board, sensors and power mode and flashes the release
-build from the browser:
+<div align="center">
+  <img src="docs/assets/fleet-ota.png" width="760" alt="HydroNode fleet view: an ESP32-C3 downloading firmware 0.8.0 over the air, with the steps queued, offered, download, verify, installed" />
+</div>
 
-- [An ESP32-C3 sensor without writing a single line of code](https://hydronode.tech/blog/esp32-c3-without-code/): the whole flow with screenshots
-- [Update every device over the air with Fleet](https://hydronode.tech/blog/fleet-ota-updates/): jobs, templates, verify modes and rollback
+## What you get
+
+- **One USB flash, then over the air.** Signed firmware updates on the ESP32 family, config updates on every board including the ESP8266.
+- **Safe updates.** Images are signed with ECDSA P-256 (the release key lives on a YubiKey) and checked before a byte is written. A new image has to prove itself in its first round: WiFi up, a reading accepted by the server and, in Strict mode, every sensor read. Otherwise the board rolls back on its own and reports why.
+- **No code.** The Device Builder plans pins, flags strapping pins, scans the I²C and 1-Wire bus, picks the most frugal power mode your parts allow and flashes over Web Serial from Chrome or Edge. The WiFi password goes to the board over USB and never to the server.
+- **40+ sensors and outputs.** Climate, air quality, light, UV, gas, particulate matter, soil, water, rain, flow, battery gauges, relays, LEDs and buttons. The full list is in [`catalog/drivers.json`](catalog/drivers.json).
+- **Low power.** Deep sleep, light sleep and modem sleep per board, rounds aligned to internet time, sensors powered down between readings. The builder shows the average current and battery life before you flash ([docs/POWER.md](docs/POWER.md)).
+- **Your data where you want it.** Charts, alerts and anomaly detection in the web app, native iOS and Android apps with widgets, and Home Assistant through HACS. Free for up to 20 sensors.
+
+## Quick start
+
+You do not need to build this repository to use the firmware.
+
+1. Create a free account and a sensor at [hydronode.tech](https://hydronode.tech/?ref=gh-firmware).
+2. Open **Dashboard → Device builder**, pick your board and click the sensors you wired.
+3. Plug the board in, press **Flash now** in Chrome or Edge. The first reading arrives as soon as it is on WiFi.
+
+After that, **Change config** in the device drawer or a new firmware release reaches the board over the air.
+
+<div align="center">
+  <img src="docs/assets/builder-board.png" width="640" alt="HydroNode device builder: choosing the ESP board to flash" />
+</div>
+
+Guides with every step:
+
+- [An ESP32-C3 sensor without writing a single line of code](https://hydronode.tech/blog/esp32-c3-without-code/?ref=gh-firmware)
+- [Update every device over the air with Fleet](https://hydronode.tech/blog/fleet-ota-updates/?ref=gh-firmware): jobs, templates, verify modes and rollback
 - [Device Builder reference](https://hydronode.tech/docs/features/device-builder/) and [Fleet reference](https://hydronode.tech/docs/features/fleet/)
+
+## Supported boards
+
+| Family | Boards in the builder | Firmware OTA | Config OTA |
+|---|---|---|---|
+| ESP32 | DevKitC (WROOM-32), WROVER Kit, Wemos D1 R32 | yes | yes |
+| ESP32-S2 | Lolin S2 Mini | yes | yes |
+| ESP32-S3 | DevKitC-1, S3 SuperMini, Seeed XIAO ESP32S3 | yes | yes |
+| ESP32-C3 | DevKitM-1, C3 SuperMini, Seeed XIAO ESP32C3 | yes | yes |
+| ESP32-C6 | DevKitC-1, Seeed XIAO ESP32C6 | yes | yes |
+| ESP8266 | NodeMCU v2/v3, Wemos D1 mini | no (no second app slot) | yes |
+
+One binary per chip family. Everything device specific (sensors, outputs, pins, interval, sleep mode, WiFi, sensor
+credentials) lives in a small config block in its own flash partition (`hncfg`, on the ESP8266 at `0x3F8000`).
+
+Prefer writing your own code? The [Arduino library](https://github.com/TexhFexLabs/HydroNode-Library) and the
+[ESPHome component](https://github.com/TexhFexLabs/hydronode-esphome) speak the same signed protocol.
 
 ## Layout
 
