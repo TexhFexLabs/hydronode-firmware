@@ -248,12 +248,14 @@ void reportDelivered() {
     power::saveReport();
 }
 
-// Button presses go out right away.
+// Button presses and output states go out right away.
 void sendPresses() {
     bool sent = false;
-    for (const char* type = act::takePress(); type; type = act::takePress()) {
+    const char* type = nullptr;
+    float value = 0;
+    while (act::takeReport(type, value)) {
         if (!connectedForSend()) continue;  // no connection: the press still toggled locally
-        int code = hydro->sendValue(type, 1);
+        int code = hydro->sendValue(type, value);
         ota::afterSend(code);
         status::line("SEND %s %d", type, code);
         if (code >= 200 && code < 300) reportDelivered();
@@ -266,7 +268,9 @@ void sendPresses() {
 void sendPressesNow() {
     if (!act::hasPresses()) return;
     if (!connectForSend()) {
-        while (act::takePress()) {}  // toggled locally already; nothing to send it with
+        const char* type = nullptr;
+        float value = 0;
+        while (act::takeReport(type, value)) {}  // toggled locally already; nothing to send it with
         return;
     }
     ensureClient();

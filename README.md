@@ -154,6 +154,13 @@ Relays, LEDs and switched outputs listen to HydroNode commands named after the d
 so a board with outputs always sends at least one value (the WiFi signal costs nothing). A button
 sends its press right away and can toggle an output on the same board.
 
+From 0.9.0 on, an output can report its state ("Report output state" in the device builder, off
+by default). It then sends `1` or `0` on its own type (`RELAY1_STATE`) whenever it changes: by
+command, by a button, at the end of a timed pulse, and once after a fresh start. In the config
+this is one `state` value on the output (`"ch":[{"q":"state","type":"RELAY1_STATE"}]`); without
+it the output sends nothing, as before. The builder binds the output's command to that data
+point, so HydroNode and Home Assistant show the real state, also after a local switch.
+
 ## Updates over the air
 
 From 0.5.0 on, the ESP32 family takes signed firmware updates over the air and every family, the

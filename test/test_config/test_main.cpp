@@ -208,6 +208,17 @@ void test_every_and_outputs() {
     TEST_ASSERT_EQUAL_FLOAT(0, d.number("timed", -1));
     TEST_ASSERT_EQUAL_STRING("fallback", d.text("missing", "fallback"));
 
+    // Firmware 0.9.0, "Report output state": the relay carries one "state" value, the config
+    // format is the same (a value like any other, the options untouched).
+    const std::string reporting =
+        R"({"drv":"relay","pin":5,"opt":{"cmd":"pump","active":"LOW","start":"OFF","toggle":true,"timed":true},"ch":[{"q":"state","type":"PUMP_STATE"}]})";
+    TEST_ASSERT_EQUAL(ConfigError::Ok, parse(replace(kMinimal, "\"devices\":[", std::string("\"devices\":[") + reporting + ","), cfg));
+    const DeviceConfig& r = cfg.devices[0];
+    TEST_ASSERT_EQUAL_UINT8(1, r.channelCount);
+    TEST_ASSERT_EQUAL_STRING("state", r.channels[0].q);
+    TEST_ASSERT_EQUAL_STRING("PUMP_STATE", r.channels[0].type);
+    TEST_ASSERT_EQUAL_UINT8(5, r.optionCount);
+
     // The WiFi signal needs no pin; any other device does.
     TEST_ASSERT_EQUAL(ConfigError::Ok, parse(replace(kMinimal, "\"drv\":\"dht\",\"pin\":4", "\"drv\":\"wifi\""), cfg));
     TEST_ASSERT_EQUAL(ConfigError::MissingField, parse(replace(kMinimal, "\"pin\":4,", ""), cfg));

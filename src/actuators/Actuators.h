@@ -6,6 +6,8 @@
 // on or off, UINT32 switches on for that many milliseconds, "<name>_level" (UINT32, 0..100) dims
 // an LED. Commands arrive with the response to a sent value, so they take effect within one
 // round. Buttons report a press right away (value 1) and can toggle an output on the board.
+// An output with a "state" value (builder: "Report output state", firmware 0.9.0) sends its
+// on/off state as 1/0 whenever it changes: by command, by a button, at the end of a pulse.
 
 #include "config/Config.h"
 #include "power/Power.h"
@@ -45,8 +47,9 @@ bool busy();
 // Milliseconds until the next timed switch-off, 0 when nothing runs.
 uint32_t pendingMs();
 
-// A button press waiting to be sent; returns its measurement type or nullptr.
-const char* takePress();
+// The next report waiting to be sent: a button press (value 1), then the changed states of
+// outputs that report them (1 on, 0 off), oldest first. False when nothing waits.
+bool takeReport(const char*& type, float& value);
 
 // Buttons as pins that wake the board (light and deep sleep), at most `cap`.
 uint8_t wakeInputs(power::WakeInput* out, uint8_t cap);
@@ -54,7 +57,7 @@ uint8_t wakeInputs(power::WakeInput* out, uint8_t cap);
 // A button on `pin` woke the board: handle the press (toggle, queue) once. False for no button.
 bool wakePress(int8_t pin);
 
-// A press is waiting to be sent.
+// A press or an output state is waiting to be sent.
 bool hasPresses();
 
 }  // namespace hn::act

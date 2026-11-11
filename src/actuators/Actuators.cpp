@@ -9,6 +9,7 @@
 #include <driver/gpio.h>
 #endif
 
+#include "StateQueue.h"
 #include "power/Power.h"
 #include "status/Status.h"
 
@@ -30,6 +31,10 @@ struct Output {
     uint8_t level;   // brightness when on, 0..255 (dimmable LEDs)
     bool pulsing;
     uint32_t offAt;  // millis() when a timed switch-on ends
+    // "Report output state" (firmware 0.9.0): the type the on/off state is sent as, nullptr when
+    // the output reports nothing (every config before 0.9.0).
+    const char* stateType;
+    StateQueue states;
 };
 
 struct Button {
@@ -137,11 +142,17 @@ void presetLevel(uint8_t pin, bool high) {
 #endif
 }
 
+// A change of an output that reports its state: queued, sent with the next connection.
+void noteState(Output& o) {
+    if (o.stateType) o.states.push(o.on);
+}
+
 void set(Output& o, bool on) {
     o.pulsing = false;
     o.on = on;
     apply(o);
     remember(indexOf(o));
+    noteState(o);
     status::line("OUT %s %s", o.dev->text("cmd", o.dev->driver), on ? "on" : "off");
 }
 
@@ -159,7 +170,16 @@ void pulse(Output& o, uint32_t ms) {
     o.on = false;
     remember(indexOf(o));
     o.on = true;
+    noteState(o);
     status::line("OUT %s on %lums", o.dev->text("cmd", o.dev->driver), (unsigned long)ms);
+}
+
+// The type an output sends its state as: its "state" value, nullptr without one.
+const char* stateTypeOf(const DeviceConfig& dev) {
+    for (uint8_t c = 0; c < dev.channelCount; c++) {
+        if (strcmp(dev.channels[c].q, "state") == 0 && dev.channels[c].type[0]) return dev.channels[c].type;
+    }
+    return nullptr;
 }
 
 int8_t findOutput(const char* name) {
@@ -204,8 +224,18 @@ void begin(const Config& cfg, bool safe) {
             if (!o.dim) power::keepLevel(o.dev->pin);
             power::releaseLevel(o.dev->pin);
             apply(o);
-            status::line("OUT %s %s pin=%d%s", dev.text("cmd", dev.driver), o.on ? "on" : "off", dev.pin,
-                         restored ? " restored" : safe ? " battery low" : "");
+            o.stateType = stateTypeOf(dev);
+            if (o.stateType) {
+                // Restored: the server has this state already. A fresh start (first boot, power cut
+                // on an ESP8266) sends it once and remembers it, so a wake-up does not send it again.
+                o.states.reset(restored ? int8_t(o.on ? 1 : 0) : -1);
+                if (!restored && !safe) {
+                    o.states.push(o.on);
+                    remember(index);
+                }
+            }
+            status::line("OUT %s %s pin=%d%s%s", dev.text("cmd", dev.driver), o.on ? "on" : "off", dev.pin,
+                         restored ? " restored" : safe ? " battery low" : "", o.stateType ? " reports" : "");
         } else if (strcmp(dev.driver, "button") == 0) {
             Button& b = buttons[buttonCount++];
             b = {};
@@ -323,14 +353,24 @@ uint32_t pendingMs() {
     return next;
 }
 
-const char* takePress() {
+bool takeReport(const char*& type, float& value) {
     for (uint8_t i = 0; i < buttonCount; i++) {
         if (buttons[i].queued > 0) {
             buttons[i].queued--;
-            return buttons[i].type;
+            type = buttons[i].type;
+            value = 1;
+            return true;
         }
     }
-    return nullptr;
+    for (uint8_t i = 0; i < outputCount; i++) {
+        bool on = false;
+        if (outputs[i].stateType && outputs[i].states.pop(on)) {
+            type = outputs[i].stateType;
+            value = on ? 1 : 0;
+            return true;
+        }
+    }
+    return false;
 }
 
 uint8_t wakeInputs(power::WakeInput* out, uint8_t cap) {
@@ -359,6 +399,9 @@ bool wakePress(int8_t pin) {
 bool hasPresses() {
     for (uint8_t i = 0; i < buttonCount; i++) {
         if (buttons[i].queued > 0) return true;
+    }
+    for (uint8_t i = 0; i < outputCount; i++) {
+        if (outputs[i].states.pending()) return true;
     }
     return false;
 }
