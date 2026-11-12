@@ -160,6 +160,10 @@ command, by a button, at the end of a timed pulse, and once after a fresh start.
 this is one `state` value on the output (`"ch":[{"q":"state","type":"RELAY1_STATE"}]`); without
 it the output sends nothing, as before. The builder binds the output's command to that data
 point, so HydroNode and Home Assistant show the real state, also after a local switch.
+A state the server does not take (429, no network, a server error) stays open and goes out again
+with the next round until it is accepted; only the newest state of an output stays open. The
+server gives state types a burst of 5 values (`sensor.rate-limit.state-burst`), the average stays
+one every 10 s.
 
 ## Updates over the air
 

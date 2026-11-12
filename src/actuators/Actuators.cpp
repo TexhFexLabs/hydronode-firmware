@@ -396,6 +396,24 @@ bool wakePress(int8_t pin) {
     return false;
 }
 
+void reportFailed(const char* type, float value) {
+    if (!type) return;
+    for (uint8_t i = 0; i < outputCount; i++) {
+        if (outputs[i].stateType && strcmp(outputs[i].stateType, type) == 0) {
+            outputs[i].states.failed(value != 0);
+            return;
+        }
+    }
+}
+
+uint8_t reopenStates() {
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < outputCount; i++) {
+        if (outputs[i].stateType && outputs[i].states.reopen()) n++;
+    }
+    return n;
+}
+
 bool hasPresses() {
     for (uint8_t i = 0; i < buttonCount; i++) {
         if (buttons[i].queued > 0) return true;

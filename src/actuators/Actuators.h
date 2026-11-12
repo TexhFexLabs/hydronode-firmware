@@ -9,6 +9,7 @@
 // An output with a "state" value (builder: "Report output state", firmware 0.9.0) sends its
 // on/off state as 1/0 whenever it changes: by command, by a button, at the end of a pulse.
 
+#include "actuators/StateQueue.h"
 #include "config/Config.h"
 #include "power/Power.h"
 
@@ -50,6 +51,14 @@ uint32_t pendingMs();
 // The next report waiting to be sent: a button press (value 1), then the changed states of
 // outputs that report them (1 on, 0 off), oldest first. False when nothing waits.
 bool takeReport(const char*& type, float& value);
+
+// The server did not take a report from takeReport() (StateQueue::retryable, or no connection).
+// An output state stays open for the next round; a button press is not repeated.
+void reportFailed(const char* type, float value);
+
+// Start of a round: open output states wait again, so they go out with this round. Returns how
+// many. Not part of hasPresses(): an open state never wakes the radio by itself.
+uint8_t reopenStates();
 
 // Buttons as pins that wake the board (light and deep sleep), at most `cap`.
 uint8_t wakeInputs(power::WakeInput* out, uint8_t cap);
