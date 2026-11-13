@@ -24,7 +24,7 @@ a free platform for DIY sensors. You pick the board and the sensors you wired in
 then on new firmware, new sensors, other pins or another interval reach the board over the air. No reflashing over a cable.
 
 <div align="center">
-  <img src="docs/assets/fleet-ota.png" width="760" alt="HydroNode fleet view: an ESP32-C3 downloading firmware 0.8.0 over the air, with the steps queued, offered, download, verify, installed" />
+  <img src="docs/assets/fleet-ota.png" width="760" alt="HydroNode devices and updates: an ESP32-C3 downloading firmware 0.8.0 over the air, with the steps queued, offered, download, verify, installed" />
 </div>
 
 ## What you get
@@ -41,10 +41,10 @@ then on new firmware, new sensors, other pins or another interval reach the boar
 You do not need to build this repository to use the firmware.
 
 1. Create a free account and a sensor at [hydronode.tech](https://hydronode.tech/?ref=gh-firmware).
-2. Open **Dashboard → Device builder**, pick your board and click the sensors you wired.
+2. Open your project and press **Device builder** above the sensor list, pick your board and click the sensors you wired.
 3. Plug the board in, press **Flash now** in Chrome or Edge. The first reading arrives as soon as it is on WiFi.
 
-After that, **Change config** in the device drawer or a new firmware release reaches the board over the air.
+After that, **Change config** in the device drawer (the gear next to the device) or a new firmware release reaches the board over the air.
 
 <div align="center">
   <img src="docs/assets/builder-board.png" width="640" alt="HydroNode device builder: choosing the ESP board to flash" />
@@ -53,8 +53,8 @@ After that, **Change config** in the device drawer or a new firmware release rea
 Guides with every step:
 
 - [An ESP32-C3 sensor without writing a single line of code](https://hydronode.tech/blog/esp32-c3-without-code/?ref=gh-firmware)
-- [Update every device over the air with Fleet](https://hydronode.tech/blog/fleet-ota-updates/?ref=gh-firmware): jobs, templates, verify modes and rollback
-- [Device Builder reference](https://hydronode.tech/docs/features/device-builder/) and [Fleet reference](https://hydronode.tech/docs/features/fleet/)
+- [Update every device over the air](https://hydronode.tech/blog/fleet-ota-updates/?ref=gh-firmware): jobs, templates, verify modes and rollback
+- [Device builder reference](https://hydronode.tech/docs/features/device-builder/) and [Devices and updates reference](https://hydronode.tech/docs/features/fleet/)
 
 ## Supported boards
 
@@ -93,7 +93,7 @@ Prefer writing your own code? The [Arduino library](https://github.com/TexhFexLa
 | `tools/sign-release.sh` | signs every OTA image of a release (YubiKey or a PEM key), writes the `ota` blocks into the manifest |
 | `tools/dev-keys/` | local dev signing key for tests (`make-dev-key.sh`, keys gitignored) |
 | `tools/check-image-size.py` | fails when an image uses more than 85 % of its OTA slot |
-| `catalog/fixtures/` | golden config blocks shared with the web encoder (`config-v1`, `config-v1-battery` with the 0.8.0 battery block) |
+| `catalog/fixtures/` | golden config blocks shared with the web encoder (`config-v1`, `config-v1-battery` with the 0.8.0 battery block, `config-v1-output-state` with outputs that report their state, 0.9.0) |
 | `test/vectors/` | battery threshold rules shared with backend, web, library and station |
 
 ## Build
@@ -154,8 +154,8 @@ Relays, LEDs and switched outputs listen to HydroNode commands named after the d
 so a board with outputs always sends at least one value (the WiFi signal costs nothing). A button
 sends its press right away and can toggle an output on the same board.
 
-From 0.9.0 on, an output can report its state ("Report output state" in the device builder, off
-by default). It then sends `1` or `0` on its own type (`RELAY1_STATE`) whenever it changes: by
+From 0.9.0 on (next release, not tagged yet), an output can report its state ("Report output state" in the
+device builder, off by default). It then sends `1` or `0` on its own type (`RELAY1_STATE`) whenever it changes: by
 command, by a button, at the end of a timed pulse, and once after a fresh start. In the config
 this is one `state` value on the output (`"ch":[{"q":"state","type":"RELAY1_STATE"}]`); without
 it the output sends nothing, as before. The builder binds the output's command to that data
@@ -163,13 +163,14 @@ point, so HydroNode and Home Assistant show the real state, also after a local s
 A state the server does not take (429, no network, a server error) stays open and goes out again
 with the next round until it is accepted; only the newest state of an output stays open. The
 server gives state types a burst of 5 values (`sensor.rate-limit.state-burst`), the average stays
-one every 10 s.
+one every 10 s. A complete config with a reporting relay and LED:
+[`catalog/fixtures/config-v1-output-state.json`](catalog/fixtures/config-v1-output-state.json).
 
 ## Updates over the air
 
 From 0.5.0 on, the ESP32 family takes signed firmware updates over the air and every family, the
 ESP8266 included, takes config updates. Getting there takes one USB flash with the device builder;
-a board on an older version shows "needs USB once" in the fleet view.
+a board on an older version shows "needs USB once" under *Devices and updates* in HydroNode.
 
 | | ESP32, S2, S3, C3, C6 | ESP8266 |
 |---|---|---|

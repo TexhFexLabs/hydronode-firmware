@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "rev": 12,
+  "board": "esp32c3-supermini",
+  "sensor": { "id": "550e8400-e29b-41d4-a716-446655440000", "secret": "aB3dE5fG7hI9jK1lM2nO4pQ6rS8tU0vW", "host": "hydronode.tech" },
+  "wifi": { "ssid": "Gärten WLAN", "pass": "correct horse battery staple", "ip": null },
+  "interval": 60,
+  "power": { "mode": "MODEM_SLEEP", "fastReconnect": true },
+  "i2c": [{ "sda": 6, "scl": 7, "hz": 100000 }],
+  "devices": [
+    { "drv": "sht4x", "bus": 0, "addr": 68, "ch": [{ "q": "t", "type": "TEMPERATURE" }, { "q": "rh", "type": "HUMIDITY" }] },
+    { "drv": "relay", "pin": 5, "opt": { "cmd": "pump", "active": "LOW", "start": "OFF", "toggle": true, "timed": true }, "ch": [{ "q": "state", "type": "PUMP_STATE" }] },
+    { "drv": "led", "pin": 4, "opt": { "cmd": "lamp", "active": "HIGH", "start": "OFF", "toggle": true, "timed": false, "dim": true }, "ch": [{ "q": "state", "type": "LAMP_STATE" }] },
+    { "drv": "button", "pin": 3, "opt": { "pull": "UP", "press": "LOW", "toggles": "pump" }, "ch": [{ "q": "btn", "type": "BUTTON" }] }
+  ]
+}
