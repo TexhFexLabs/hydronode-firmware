@@ -248,15 +248,22 @@ void reportDelivered() {
     power::saveReport();
 }
 
-// Button presses go out right away.
+// Button presses and output states go out right away.
 void sendPresses() {
     bool sent = false;
-    for (const char* type = act::takePress(); type; type = act::takePress()) {
-        if (!connectedForSend()) continue;  // no connection: the press still toggled locally
-        int code = hydro->sendValue(type, 1);
+    const char* type = nullptr;
+    float value = 0;
+    while (act::takeReport(type, value)) {
+        if (!connectedForSend()) {
+            // No connection: the press still toggled locally; an output state stays open.
+            act::reportFailed(type, value);
+            continue;
+        }
+        int code = hydro->sendValue(type, value);
         ota::afterSend(code);
         status::line("SEND %s %d", type, code);
         if (code >= 200 && code < 300) reportDelivered();
+        else if (act::retryable(code)) act::reportFailed(type, value);  // next round again
         sent = true;
     }
     if (sent && !keepConnection()) hydro->closeConnection();
@@ -266,7 +273,10 @@ void sendPresses() {
 void sendPressesNow() {
     if (!act::hasPresses()) return;
     if (!connectForSend()) {
-        while (act::takePress()) {}  // toggled locally already; nothing to send it with
+        const char* type = nullptr;
+        float value = 0;
+        // Toggled locally already; nothing to send it with. Output states stay open for the round.
+        while (act::takeReport(type, value)) act::reportFailed(type, value);
         return;
     }
     ensureClient();
@@ -750,6 +760,7 @@ ota::RoundReport measureAndSend() {
         if (code >= 200 && code < 300) reportDelivered();
         act::service();  // a command in the answer may have started a short pulse
     }
+    act::reopenStates();  // states the server did not take last time go out with this round
     sendPresses();
     if (!keepConnection()) hydro->closeConnection();
     return report;

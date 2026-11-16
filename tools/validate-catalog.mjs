@@ -234,8 +234,14 @@ for (const d of drivers.drivers) {
     fail(`driver ${d.id}: only a second pin, or the pin of an I²C part, can be optional`);
   }
   checkSleepRules(d);
-  if (d.kind === 'output' ? d.channels.length !== 0 : d.channels.length === 0) {
-    fail(`driver ${d.id}: ${d.kind === 'output' ? 'outputs send nothing' : 'needs at least one channel'}`);
+  // An output sends at most its own on/off state (0.9.0, "Report output state"), only when the
+  // builder switches it on: one optional "state" value.
+  if (d.kind === 'output') {
+    if (d.channels.some((c) => c.q !== 'state' || c.optional !== true) || d.channels.length > 1) {
+      fail(`driver ${d.id}: an output sends nothing but an optional "state" value`);
+    }
+  } else if (d.channels.length === 0) {
+    fail(`driver ${d.id}: needs at least one channel`);
   }
   const qs = new Set();
   for (const ch of d.channels) {
@@ -246,6 +252,8 @@ for (const d of drivers.drivers) {
     for (const t of ch.typeOptions) if (t !== '*' && !TYPE_RE.test(t)) fail(`driver ${d.id}: invalid type option ${t}`);
     // A value newer than its part (an INA's battery level): only sent by that firmware or newer.
     checkMinFirmware(`driver ${d.id}: channel ${ch.q}`, ch.minFirmware);
+    // "optional": the builder does not send it until the user switches it on.
+    if ('optional' in ch && typeof ch.optional !== 'boolean') fail(`driver ${d.id}: channel ${ch.q} optional must be true or false`);
   }
   for (const name of d.libs) if (!libByName.has(name)) fail(`driver ${d.id}: library ${name} missing in libraries.json`);
   // Sampling every second needs a running CPU; such a sensor can never be sleep safe.

@@ -105,7 +105,7 @@ peripherals powered while a pin is held.
 
 ## What the board reports
 
-Every request of a round carries `X-Device-Report`, read by the fleet view:
+Every request of a round carries `X-Device-Report`, shown under *Devices and updates* in HydroNode:
 
 ```
 X-Device-Report: awake=4120;nap=9800;wifi=2300;wakes=3;wfail=2:AUTH;sens=scd4x:missing,pms5003:warming

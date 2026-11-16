@@ -137,6 +137,10 @@
       "name": "Press",
       "unit": ""
     },
+    "state": {
+      "name": "Output state",
+      "unit": ""
+    },
     "pct": {
       "name": "Battery level",
       "unit": "%"
@@ -2863,7 +2867,17 @@
           ]
         }
       ],
-      "channels": [],
+      "channels": [
+        {
+          "q": "state",
+          "defaultType": "OUTPUT_STATE",
+          "typeOptions": [
+            "*"
+          ],
+          "minFirmware": "0.9.0",
+          "optional": true
+        }
+      ],
       "libs": [],
       "esphome": "gpio"
     },
@@ -2976,7 +2990,17 @@
           ]
         }
       ],
-      "channels": [],
+      "channels": [
+        {
+          "q": "state",
+          "defaultType": "OUTPUT_STATE",
+          "typeOptions": [
+            "*"
+          ],
+          "minFirmware": "0.9.0",
+          "optional": true
+        }
+      ],
       "libs": [],
       "esphome": "gpio"
     },
@@ -3071,7 +3095,17 @@
           ]
         }
       ],
-      "channels": [],
+      "channels": [
+        {
+          "q": "state",
+          "defaultType": "OUTPUT_STATE",
+          "typeOptions": [
+            "*"
+          ],
+          "minFirmware": "0.9.0",
+          "optional": true
+        }
+      ],
       "libs": [],
       "esphome": "gpio"
     },

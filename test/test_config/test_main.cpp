@@ -208,6 +208,17 @@ void test_every_and_outputs() {
     TEST_ASSERT_EQUAL_FLOAT(0, d.number("timed", -1));
     TEST_ASSERT_EQUAL_STRING("fallback", d.text("missing", "fallback"));
 
+    // Firmware 0.9.0, "Report output state": the relay carries one "state" value, the config
+    // format is the same (a value like any other, the options untouched).
+    const std::string reporting =
+        R"({"drv":"relay","pin":5,"opt":{"cmd":"pump","active":"LOW","start":"OFF","toggle":true,"timed":true},"ch":[{"q":"state","type":"PUMP_STATE"}]})";
+    TEST_ASSERT_EQUAL(ConfigError::Ok, parse(replace(kMinimal, "\"devices\":[", std::string("\"devices\":[") + reporting + ","), cfg));
+    const DeviceConfig& r = cfg.devices[0];
+    TEST_ASSERT_EQUAL_UINT8(1, r.channelCount);
+    TEST_ASSERT_EQUAL_STRING("state", r.channels[0].q);
+    TEST_ASSERT_EQUAL_STRING("PUMP_STATE", r.channels[0].type);
+    TEST_ASSERT_EQUAL_UINT8(5, r.optionCount);
+
     // The WiFi signal needs no pin; any other device does.
     TEST_ASSERT_EQUAL(ConfigError::Ok, parse(replace(kMinimal, "\"drv\":\"dht\",\"pin\":4", "\"drv\":\"wifi\""), cfg));
     TEST_ASSERT_EQUAL(ConfigError::MissingField, parse(replace(kMinimal, "\"pin\":4,", ""), cfg));
@@ -252,6 +263,31 @@ void test_battery_fixture_parses() {
     TEST_ASSERT_EQUAL(0, b.restUa);  // only with INA charge counting
     TEST_ASSERT_EQUAL_STRING("max1704x", cfg.devices[1].driver);
     TEST_ASSERT_EQUAL(4, cfg.devices[1].channels[2].every);
+}
+
+// Firmware 0.9.0: outputs that report their state, pinned like config-v1
+// (catalog/fixtures/config-v1-output-state.*, the example in the README).
+void test_output_state_fixture_parses() {
+    auto data = readFile("catalog/fixtures/config-v1-output-state.bin");
+    TEST_ASSERT_TRUE_MESSAGE(!data.empty(), "fixture missing, run pio test from the project root");
+    ParseResult r = parseBlock(data.data(), data.size(), cfg);
+    TEST_ASSERT_EQUAL_STRING("", r.detail);
+    TEST_ASSERT_EQUAL(ConfigError::Ok, r.error);
+    TEST_ASSERT_EQUAL(4, cfg.deviceCount);
+    const DeviceConfig& relay = cfg.devices[1];
+    TEST_ASSERT_EQUAL_STRING("relay", relay.driver);
+    TEST_ASSERT_EQUAL_STRING("pump", relay.text("cmd", "x"));
+    TEST_ASSERT_EQUAL_UINT8(1, relay.channelCount);
+    TEST_ASSERT_EQUAL_STRING("state", relay.channels[0].q);
+    TEST_ASSERT_EQUAL_STRING("PUMP_STATE", relay.channels[0].type);
+    const DeviceConfig& led = cfg.devices[2];
+    TEST_ASSERT_EQUAL_STRING("led", led.driver);
+    TEST_ASSERT_EQUAL_FLOAT(1, led.number("dim", 0));
+    TEST_ASSERT_EQUAL_STRING("LAMP_STATE", led.channels[0].type);
+    const DeviceConfig& button = cfg.devices[3];
+    TEST_ASSERT_EQUAL_STRING("button", button.driver);
+    TEST_ASSERT_EQUAL_STRING("pump", button.text("toggles", ""));
+    TEST_ASSERT_EQUAL_STRING("BUTTON", button.channels[0].type);
 }
 
 void test_battery_block_defaults_and_errors() {
@@ -338,6 +374,7 @@ int main() {
     RUN_TEST(test_every_and_outputs);
     RUN_TEST(test_type_rule_matches_backend);
     RUN_TEST(test_battery_fixture_parses);
+    RUN_TEST(test_output_state_fixture_parses);
     RUN_TEST(test_battery_block_defaults_and_errors);
     RUN_TEST(test_threshold_rules_match_the_shared_table);
     return UNITY_END();

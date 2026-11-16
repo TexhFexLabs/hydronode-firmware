@@ -1,8 +1,8 @@
 # Updates over the air
 
 Firmware 0.5.0 and later update over the air. One USB flash with the device builder is needed to get
-there; after that the fleet view in HydroNode sends new firmware and new config to the board. The
-user guide is at <https://hydronode.tech/docs/features/fleet>.
+there; after that *Devices and updates* in HydroNode sends new firmware and new config to the board.
+The user guide is at <https://hydronode.tech/docs/features/fleet>.
 
 | | ESP32, S2, S3, C3, C6 | ESP8266 |
 |---|---|---|
@@ -50,7 +50,7 @@ another sleep mode as a plain config update, no firmware update needed. Only the
 the WiFi stay as they are.
 
 A driver or sleep mode added in a later release carries `minFirmware` in the catalog
-(`catalog/drivers.json`, `catalog/sleep-modes.json`). Fleet sends a config that uses it only to a
+(`catalog/drivers.json`, `catalog/sleep-modes.json`). HydroNode sends a config that uses it only to a
 board on that version or newer; with a firmware update in the same change the firmware goes first,
 then the config. Without `minFirmware` a part runs on every firmware from 0.5.0.
 A sleep rule can carry its own `minFirmware` (a rain gauge in deep sleep needs 0.6.0); see
@@ -82,7 +82,7 @@ on the ESP8266 (not over a power cut, then the start state from the config appli
 
 ## What the server does
 
-The fleet view in HydroNode creates one job per board and change. In short, the backend:
+HydroNode creates one job per board and change. In short, the backend:
 
 - An offer stands in every reply while the job is offered and counts once per round. A board that
   does not take it within three rounds fails the job ("Offered 3 times, not taken").

@@ -71,7 +71,9 @@ void service() {}
 void advance(uint32_t) {}
 bool busy() { return fake::pulseLeft > 0; }
 uint32_t pendingMs() { return fake::pulseLeft; }
-const char* takePress() { return nullptr; }
+bool takeReport(const char*&, float&) { return false; }
+void reportFailed(const char*, float) {}
+uint8_t reopenStates() { return 0; }
 uint8_t wakeInputs(power::WakeInput*, uint8_t) { return 0; }
 bool wakePress(int8_t) { return false; }
 bool hasPresses() { return false; }
